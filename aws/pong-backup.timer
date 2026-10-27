@@ -1,0 +1,9 @@
+[Unit]
+Description=Hourly PONG backup
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+Persistent=true
+RandomizedDelaySec=60
+[Install]
+WantedBy=timers.target
