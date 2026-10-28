@@ -6,7 +6,9 @@ Metadata:
       - Label: {default: '1. ZIP uploaded to S3'}
         Parameters: [ArtifactBucket, ArtifactKey]
       - Label: {default: '2. Server size (default recommended)'}
-        Parameters: [InstanceType, DataVolumeSize]
+        Parameters: [InstanceType, DataVolumeSize, CpuCredits]
+      - Label: {default: '3. Cost control and logs'}
+        Parameters: [EnableNightSchedule, LogRetentionDays]
 Parameters:
   ArtifactBucket:
     Type: String
@@ -27,10 +29,32 @@ Parameters:
     MinValue: 8
     MaxValue: 100
     Description: 'Persistent encrypted data disk in GiB. Retained if stack is deleted.'
+  CpuCredits:
+    Type: String
+    Default: standard
+    AllowedValues: [standard, unlimited]
+    Description: 'standard avoids surplus CPU credit charges; CPU slows when credits run out.'
+  EnableNightSchedule:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: 'Stop at 00:00 and start at 08:00 Asia/Tokyo. Start-up takes a few minutes.'
+  LogRetentionDays:
+    Type: Number
+    Default: 7
+    AllowedValues: [1, 3, 5, 7, 14, 30]
+    Description: 'CloudWatch log retention. Default 7 days to limit storage costs.'
   LatestAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+Conditions:
+  NightScheduleEnabled: !Equals [!Ref EnableNightSchedule, 'true']
 Resources:
+  ApplicationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/pong/${AWS::StackName}/application'
+      RetentionInDays: !Ref LogRetentionDays
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -101,6 +125,12 @@ Resources:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: !Ref OriginSecret
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents, logs:DescribeLogStreams]
+                Resource: !GetAtt ApplicationLogGroup.Arn
+              - Effect: Allow
+                Action: logs:DescribeLogGroups
+                Resource: '*'
   ServerProfile:
     Type: AWS::IAM::InstanceProfile
     Properties: {Roles: [!Ref ServerRole]}
@@ -122,6 +152,7 @@ Resources:
     Properties:
       ImageId: !Ref LatestAmiId
       InstanceType: !Ref InstanceType
+      CreditSpecification: {CPUCredits: !Ref CpuCredits}
       IamInstanceProfile: !Ref ServerProfile
       SubnetId: !Ref Subnet
       SecurityGroupIds: [!Ref ServerSecurityGroup]
@@ -141,6 +172,7 @@ Resources:
           export PONG_DATA_VOLUME='${DataVolume}'
           export PONG_ORIGIN_SECRET='${OriginSecret}'
           export PONG_WAIT_HANDLE='${ServerWaitHandle}'
+          export PONG_LOG_GROUP='${ApplicationLogGroup}'
           dnf install -y aws-cfn-bootstrap
           trap 'rc=$?; /opt/aws/bin/cfn-signal -e "$rc" "$PONG_WAIT_HANDLE"' EXIT
           dnf install -y unzip nginx python3 awscli-2 tar xz
@@ -200,8 +232,92 @@ Resources:
           - action: aws:runShellScript
             name: UpdatePong
             inputs:
-              timeoutSeconds: '300'
-              runCommand: ['bash /opt/pong/aws/update.sh']
+              timeoutSeconds: '600'
+              runCommand:
+                - !Sub "export PONG_LOG_GROUP='${ApplicationLogGroup}'"
+                - 'bash /opt/pong/aws/update.sh'
+  ConfigureMonitoringDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Content:
+        schemaVersion: '2.2'
+        description: 'Configure CloudWatch collection after updating the application ZIP. Restarts PONG.'
+        mainSteps:
+          - action: aws:runShellScript
+            name: ConfigureMonitoring
+            inputs:
+              timeoutSeconds: '600'
+              runCommand:
+                - !Sub "export PONG_LOG_GROUP='${ApplicationLogGroup}'"
+                - 'bash /opt/pong/aws/configure-monitoring.sh'
+  NightScheduleGroup:
+    Type: AWS::Scheduler::ScheduleGroup
+  ScheduleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: scheduler.amazonaws.com}
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: {aws:SourceAccount: !Ref 'AWS::AccountId'}
+              ArnEquals:
+                aws:SourceArn: !GetAtt NightScheduleGroup.Arn
+      Policies:
+        - PolicyName: StartStopOnlyThisServer
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [ec2:StartInstances, ec2:StopInstances]
+                Resource: !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${GameServer}'
+  StopAtMidnight:
+    Type: AWS::Scheduler::Schedule
+    DependsOn: ServerReady
+    Properties:
+      GroupName: !Ref NightScheduleGroup
+      Description: 'Stop PONG daily at midnight Japan time.'
+      ScheduleExpression: 'cron(0 0 * * ? *)'
+      ScheduleExpressionTimezone: Asia/Tokyo
+      FlexibleTimeWindow: {Mode: 'OFF'}
+      State: !If [NightScheduleEnabled, ENABLED, DISABLED]
+      Target:
+        Arn: !Sub 'arn:${AWS::Partition}:scheduler:::aws-sdk:ec2:stopInstances'
+        RoleArn: !GetAtt ScheduleRole.Arn
+        Input: !Sub '{"InstanceIds":["${GameServer}"]}'
+        RetryPolicy: {MaximumEventAgeInSeconds: 300, MaximumRetryAttempts: 2}
+  StartAtEight:
+    Type: AWS::Scheduler::Schedule
+    DependsOn: ServerReady
+    Properties:
+      GroupName: !Ref NightScheduleGroup
+      Description: 'Start PONG daily at 08:00 Japan time (allow a few minutes to boot).'
+      ScheduleExpression: 'cron(0 8 * * ? *)'
+      ScheduleExpressionTimezone: Asia/Tokyo
+      FlexibleTimeWindow: {Mode: 'OFF'}
+      State: !If [NightScheduleEnabled, ENABLED, DISABLED]
+      Target:
+        Arn: !Sub 'arn:${AWS::Partition}:scheduler:::aws-sdk:ec2:startInstances'
+        RoleArn: !GetAtt ScheduleRole.Arn
+        Input: !Sub '{"InstanceIds":["${GameServer}"]}'
+        RetryPolicy: {MaximumEventAgeInSeconds: 300, MaximumRetryAttempts: 2}
+  OperationsDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${AWS::StackName}-operations'
+      DashboardBody: !Sub |
+        {"start":"-PT3H","periodOverride":"inherit","widgets":[
+          {"type":"text","x":0,"y":0,"width":24,"height":2,"properties":{"markdown":"# PONG operations\nJapan time: OFF 00:00-08:00 (when enabled). Usage logs arrive every 60 seconds while running. Select a short time range; log queries are billed by data scanned. No custom metrics."}},
+          {"type":"metric","x":0,"y":2,"width":12,"height":6,"properties":{"title":"CPU and remaining CPU credits","region":"${AWS::Region}","period":300,"stat":"Average","metrics":[["AWS/EC2","CPUUtilization","InstanceId","${GameServer}"],["AWS/EC2","CPUCreditBalance","InstanceId","${GameServer}",{"yAxis":"right"}]]}},
+          {"type":"metric","x":12,"y":2,"width":12,"height":6,"properties":{"title":"Network traffic (bytes / 5 min)","region":"${AWS::Region}","period":300,"stat":"Sum","metrics":[["AWS/EC2","NetworkIn","InstanceId","${GameServer}"],["AWS/EC2","NetworkOut","InstanceId","${GameServer}"]]}},
+          {"type":"log","x":0,"y":8,"width":12,"height":6,"properties":{"title":"Online players / active matches","region":"${AWS::Region}","view":"timeSeries","query":"SOURCE '${ApplicationLogGroup}' | filter event = 'usage' | stats max(online) as OnlinePlayers, max(matches) as ActiveMatches, max(waiting) as Waiting by bin(5m)"}},
+          {"type":"log","x":12,"y":8,"width":12,"height":6,"properties":{"title":"Finished / interrupted matches by mode","region":"${AWS::Region}","view":"table","query":"SOURCE '${ApplicationLogGroup}' | filter event = 'match_finished' | stats count(*) as Matches, avg(durationSeconds) as AvgSeconds by mode, outcome, reason"}},
+          {"type":"log","x":0,"y":14,"width":12,"height":6,"properties":{"title":"Recent usage and memory (MB)","region":"${AWS::Region}","view":"table","query":"SOURCE '${ApplicationLogGroup}' | filter event = 'usage' | fields @timestamp, online, playing, matches, waiting, memoryMb | sort @timestamp desc | limit 30"}},
+          {"type":"log","x":12,"y":14,"width":12,"height":6,"properties":{"title":"Application / nginx errors","region":"${AWS::Region}","view":"table","query":"SOURCE '${ApplicationLogGroup}' | filter event = 'request_error' or @logStream like /nginx/ | fields @timestamp, @logStream, @message | sort @timestamp desc | limit 50"}}
+        ]}
 Outputs:
   GameURL:
     Description: 'Open this HTTPS URL and share it with players.'
@@ -221,3 +337,15 @@ Outputs:
   UpdateCommandDocument:
     Description: 'In Systems Manager > Run Command, select this document to install an overwritten S3 ZIP.'
     Value: !Ref UpdateApplicationDocument
+  MonitoringCommandDocument:
+    Description: 'SSM Run Command document to install/repair CloudWatch collection.'
+    Value: !Ref ConfigureMonitoringDocument
+  ApplicationLogs:
+    Description: 'CloudWatch Logs group: usage, matches and errors. Default 7-day retention.'
+    Value: !Ref ApplicationLogGroup
+  DashboardURL:
+    Description: 'Open the CloudWatch usage and server dashboard.'
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${OperationsDashboard}'
+  ScheduleGroup:
+    Description: 'EventBridge Scheduler group. OFF 00:00-08:00 Asia/Tokyo by default.'
+    Value: !Ref NightScheduleGroup

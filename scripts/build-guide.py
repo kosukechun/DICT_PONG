@@ -2,6 +2,7 @@
 from pathlib import Path
 import re
 import html
+import base64
 
 ROOT = Path(__file__).resolve().parent.parent
 source = (ROOT / 'docs/AWS_SETUP.md').read_text(encoding='utf-8')
@@ -40,6 +41,12 @@ while i < len(lines):
         flush(); close_list(); code = []; i += 1; continue
     if not line.strip():
         flush(); close_list(); i += 1; continue
+    image_match = re.fullmatch(r'!\[([^]]*)\]\(architecture.svg\)', line)
+    if image_match:
+        flush(); close_list()
+        data = base64.b64encode((ROOT / 'docs/architecture.svg').read_bytes()).decode('ascii')
+        parts.append('<figure><img style="width:100%;height:auto" alt="' + html.escape(image_match[1]) + '" src="data:image/svg+xml;base64,' + data + '"></figure>')
+        i += 1; continue
     match = re.match(r'^(#{1,6}) (.+)$', line)
     if match:
         flush(); close_list()

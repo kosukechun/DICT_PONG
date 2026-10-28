@@ -36,9 +36,12 @@ try:
             time.sleep(.05)
     else:
         raise RuntimeError('Packaged server failed readiness')
-    for path, content in [('/', b'DICT_PONG'), ('/app.js', b'WebSocket'), ('/field.js', b'goalTop'), ('/style.css', b'--orange'), ('/favicon.svg', b'<svg')]:
+    for path, content in [('/', b'DICT_PONG'), ('/app.js', b'WebSocket'), ('/field.js', b'goalTop'), ('/style.css', b'--blue'), ('/favicon.svg', b'<svg')]:
         with urllib.request.urlopen(base + path) as r:
             assert r.status == 200 and content in r.read(), path
+    with urllib.request.urlopen(base + '/HTdR38qbIAA86Ob.webp') as r:
+        assert r.headers['Content-Type'] == 'image/webp'
+        assert r.read() == (ROOT / 'HTdR38qbIAA86Ob.webp').read_bytes()
     request = urllib.request.Request(base + '/api/login', data=json.dumps({'name': 'chun'}).encode(), headers={'Content-Type': 'application/json', 'Origin': base})
     with urllib.request.urlopen(request) as r:
         cookie = r.headers['Set-Cookie'].split(';')[0]

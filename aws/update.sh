@@ -36,9 +36,13 @@ if [ -d /opt/pong-previous ]; then rm -rf -- /opt/pong-previous; fi
 mv /opt/pong /opt/pong-previous
 mv /opt/pong-staging /opt/pong
 systemctl start pong
+MONITORING_READY=true
+if [ -n "${PONG_LOG_GROUP:-}" ]; then
+  if ! bash /opt/pong/aws/configure-monitoring.sh; then MONITORING_READY=false; fi
+fi
 HEALTHY=false
 for attempt in $(seq 1 15); do
-  if curl -fsS http://127.0.0.1:3000/health > /dev/null; then HEALTHY=true; break; fi
+  if [ "$MONITORING_READY" = true ] && curl -fsS http://127.0.0.1:3000/health > /dev/null; then HEALTHY=true; break; fi
   sleep 2
 done
 if [ "$HEALTHY" != true ]; then

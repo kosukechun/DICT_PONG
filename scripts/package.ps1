@@ -26,10 +26,11 @@ Write-PackageZip -Destination (Join-Path $releaseRoot 'pong-app.zip') -Paths $ap
 Copy-Item -LiteralPath (Join-Path $projectRoot 'aws/pong-stack.yaml') -Destination (Join-Path $releaseRoot 'pong-stack.yaml') -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/AWS_SETUP.html') -Destination (Join-Path $releaseRoot 'AWS_SETUP.html') -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/AWS_SETUP.md') -Destination (Join-Path $releaseRoot 'AWS_SETUP.md') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/architecture.svg') -Destination (Join-Path $releaseRoot 'ARCHITECTURE.svg') -Force
 $bundleStream = [IO.File]::Open((Join-Path $releaseRoot 'PONG-AWS-kit.zip'), [IO.FileMode]::Create)
 $bundleZip = New-Object IO.Compression.ZipArchive($bundleStream, [IO.Compression.ZipArchiveMode]::Create)
 try {
-    foreach ($name in @('pong-app.zip','pong-stack.yaml','AWS_SETUP.html','AWS_SETUP.md')) {
+    foreach ($name in @('pong-app.zip','pong-stack.yaml','AWS_SETUP.html','AWS_SETUP.md','ARCHITECTURE.svg')) {
         [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($bundleZip, (Join-Path $releaseRoot $name), $name, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
     }
 } finally { $bundleZip.Dispose(); $bundleStream.Dispose() }

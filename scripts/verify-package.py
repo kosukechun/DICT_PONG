@@ -28,7 +28,7 @@ for path in ['public/index.html', 'docs/AWS_SETUP.html']:
 with zipfile.ZipFile(ROOT / 'release/pong-app.zip') as z:
     assert z.testzip() is None
     names = z.namelist()
-    required = ['package.json', 'package-lock.json', 'public/index.html', 'public/app.js', 'public/field.js', 'public/style.css', 'server/index.js', 'server/store.js', 'server/physics.js', 'aws/bootstrap.sh', 'aws/update.sh', 'aws/pong-stack.yaml', 'aws/node-version.txt', 'node_modules/ws/package.json', 'node_modules/ws/LICENSE', 'docs/AWS_SETUP.html', 'README.md', 'start-local.cmd', 'scripts/start-local.ps1', 'scripts/package.ps1', 'tests/ui.test.js']
+    required = ['package.json', 'package-lock.json', 'public/index.html', 'public/app.js', 'public/field.js', 'public/style.css', 'public/HTdR38qbIAA86Ob.webp', 'server/index.js', 'server/store.js', 'server/physics.js', 'aws/bootstrap.sh', 'aws/update.sh', 'aws/configure-monitoring.sh', 'aws/pong-stack.yaml', 'aws/node-version.txt', 'node_modules/ws/package.json', 'node_modules/ws/LICENSE', 'docs/AWS_SETUP.html', 'docs/architecture.svg', 'README.md', 'start-local.cmd', 'scripts/start-local.ps1', 'scripts/package.ps1', 'tests/ui.test.js']
     assert set(required).issubset(names), set(required) - set(names)
     assert all('\\' not in n and not n.startswith('/') and '..' not in Path(n).parts for n in names)
     assert all(not n.startswith(('.tools/', '.runtime/', 'data/', 'release/', '.git/')) for n in names)
@@ -41,6 +41,6 @@ with zipfile.ZipFile(ROOT / 'release/pong-app.zip') as z:
     assert package['dependencies']['ws'] == ws['version']
     assert z.read('aws/pong-stack.yaml') == (ROOT / 'release/pong-stack.yaml').read_bytes()
 with zipfile.ZipFile(ROOT / 'release/PONG-AWS-kit.zip') as z:
-    assert set(z.namelist()) == {'pong-app.zip', 'pong-stack.yaml', 'AWS_SETUP.html', 'AWS_SETUP.md'}
+    assert set(z.namelist()) == {'pong-app.zip', 'pong-stack.yaml', 'AWS_SETUP.html', 'AWS_SETUP.md', 'ARCHITECTURE.svg'}
     assert z.testzip() is None
 print('Verified HTML IDs / TOC, all client IDs, ZIP layout, required files, LF scripts, dependency version, and absence of runtime data/secrets.')

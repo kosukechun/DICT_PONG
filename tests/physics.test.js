@@ -2,6 +2,55 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FIELD, makeState, movePaddle, collidePaddle, stepBall, viewState, cpuInput } from '../server/physics.js';
 
+test('dash is faster, spends stamina once and has equal diagonal distance', () => {
+  const [straight, diagonal] = [0, 1].map(() => ({ ...makeState().paddles[0], x: 250 }));
+  const start = { x: 250, y: 320 };
+  for (let n = 0; n < 8; n++) {
+    movePaddle(straight, n === 0 ? { dash: { dx: 1, dy: 0 } } : {}, 0, 1 / 60);
+    movePaddle(diagonal, n === 0 ? { dash: { dx: 1, dy: -1 } } : {}, 0, 1 / 60);
+  }
+  assert.ok(straight.x - start.x > FIELD.paddleSpeed * 8 / 60 * 2);
+  assert.ok(Math.abs(straight.x - start.x - Math.hypot(diagonal.x - start.x, diagonal.y - start.y)) < 0.001);
+  assert.equal(straight.stamina, 65); assert.equal(diagonal.stamina, 65);
+  assert.equal(straight.dashRemaining, 0);
+});
+
+test('stamina, cooldown, recovery delay and all eight dash directions are enforced', () => {
+  for (const dx of [-1, 0, 1]) for (const dy of [-1, 0, 1]) {
+    if (!dx && !dy) continue;
+    const p = { ...makeState().paddles[0], x: 280 };
+    movePaddle(p, { dash: { dx, dy } }, 0, 1 / 60);
+    assert.equal(p.stamina, 65);
+    const stamina = p.stamina;
+    movePaddle(p, { dash: { dx, dy } }, 0, 1 / 60);
+    assert.equal(p.stamina, stamina);
+    for (let i = 0; i < 38; i++) movePaddle(p, {}, 0, 1 / 60);
+    assert.ok(p.stamina > 65 && p.stamina < 66);
+    for (let i = 0; i < 400; i++) movePaddle(p, {}, 0, 1 / 60);
+    assert.equal(p.stamina, 100);
+  }
+  const p = { ...makeState().paddles[0], stamina: 20 };
+  movePaddle(p, { dash: { dx: 1, dy: 0 } }, 0, 1 / 60);
+  assert.equal(p.x, 90); assert.equal(p.dashRemaining, 0);
+  for (const side of [0, 1]) {
+    const p = { ...makeState().paddles[side] };
+    for (let i = 0; i < 120; i++) movePaddle(p, { dx: side ? -1 : 1, dy: -1, dash: { dx: side ? -1 : 1, dy: -1 } }, side, 1 / 60);
+    assert.ok(p.x >= (side ? 655 : 35) && p.x <= (side ? 1165 : 545));
+    assert.ok(p.y >= 64 && p.stamina >= 0);
+  }
+});
+
+test('widened goal admits shots in the new opening on both sides', () => {
+  assert.equal(FIELD.goalBottom - FIELD.goalTop, 248);
+  for (const side of [0, 1]) for (const y of [218, 422]) {
+    const state = makeState(); state.countdown = 0;
+    state.ball = { x: side ? 1199 : 1, y, vx: side ? 560 : -560, vy: 0 };
+    let scorer = null;
+    for (let n = 0; n < 5 && scorer === null; n++) scorer = stepBall(state, 1 / 60);
+    assert.equal(scorer, side ? 0 : 1);
+  }
+});
+
 test('both participants see their paddle on the left and their own score first', () => {
   const state = makeState(); state.ball = { x: 234, y: 280, vx: 600, vy: -100 }; state.score = [4, 2];
   const view = viewState(state, 1);

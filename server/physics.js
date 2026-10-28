@@ -4,12 +4,26 @@ export const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
 export function makeState() {
   return {
-    paddles: [{ x: 90, y: 320, vx: 0, vy: 0 }, { x: 1110, y: 320, vx: 0, vy: 0 }],
+    paddles: [90, 1110].map(x => ({ x, y: 320, vx: 0, vy: 0, stamina: FIELD.staminaMax, dashRemaining: 0, dashCooldown: 0, regenDelay: 0 })),
     ball: { x: 600, y: 320, vx: 0, vy: 0 }, score: [0, 0], countdown: 2.5, rally: 0,
   };
 }
 
 export function movePaddle(p, input, side, dt, speed = FIELD.paddleSpeed) {
+  if (!(dt > 0)) return;
+  p.stamina ??= FIELD.staminaMax;
+  p.dashRemaining ??= 0; p.dashCooldown ??= 0; p.regenDelay ??= 0;
+  p.dashCooldown = Math.max(0, p.dashCooldown - dt);
+  const dash = input?.dash;
+  const dashLength = Math.hypot(dash?.dx || 0, dash?.dy || 0);
+  if (dashLength > 0 && Number.isFinite(dashLength) && !p.dashRemaining && !p.dashCooldown && p.stamina >= FIELD.dashCost) {
+    p.dashX = dash.dx / dashLength; p.dashY = dash.dy / dashLength;
+    p.dashRemaining = FIELD.dashDuration; p.dashCooldown = FIELD.dashCooldown;
+    p.stamina -= FIELD.dashCost; p.regenDelay = FIELD.staminaRegenDelay;
+  }
+  const regenTime = Math.max(0, dt - p.regenDelay);
+  p.regenDelay = Math.max(0, p.regenDelay - dt);
+  p.stamina = Math.min(FIELD.staminaMax, p.stamina + FIELD.staminaRegen * regenTime);
   let dx = clamp(Number(input?.dx) || 0, -1, 1), dy = clamp(Number(input?.dy) || 0, -1, 1);
   if (Number.isFinite(input?.x) && Number.isFinite(input?.y)) {
     dx = input.x - p.x; dy = input.y - p.y;
@@ -20,8 +34,10 @@ export function movePaddle(p, input, side, dt, speed = FIELD.paddleSpeed) {
     const length = Math.max(1, Math.hypot(dx, dy)); dx /= length; dy /= length;
   }
   const oldX = p.x, oldY = p.y;
-  p.x = clamp(p.x + dx * speed * dt, side ? 655 : 35, side ? 1165 : 545);
-  p.y = clamp(p.y + dy * speed * dt, 64, 576);
+  const dashTime = Math.min(dt, p.dashRemaining), normalTime = dt - dashTime;
+  p.x = clamp(p.x + dx * speed * normalTime + (p.dashX || 0) * FIELD.dashSpeed * dashTime, side ? 655 : 35, side ? 1165 : 545);
+  p.y = clamp(p.y + dy * speed * normalTime + (p.dashY || 0) * FIELD.dashSpeed * dashTime, 64, 576);
+  p.dashRemaining = Math.max(0, p.dashRemaining - dt);
   p.vx = (p.x - oldX) / dt; p.vy = (p.y - oldY) / dt;
 }
 
@@ -105,7 +121,7 @@ export function stepBall(state, dt, random = Math.random) {
       const scorer = b.x < 0 ? 1 : 0;
       state.score[scorer]++;
       state.ball = { x: 600, y: 320, vx: 0, vy: 0 };
-      state.paddles.forEach((p, side) => Object.assign(p, { x: side ? 1110 : 90, y: 320, vx: 0, vy: 0 }));
+      state.paddles.forEach((p, side) => Object.assign(p, { x: side ? 1110 : 90, y: 320, vx: 0, vy: 0, dashRemaining: 0 }));
       state.countdown = 2; state.serveDirection = scorer ? -1 : 1; state.rally = 0;
       return scorer;
     }
@@ -133,7 +149,7 @@ export function viewState(state, side) {
   if (!side) return { ...state, paddles: state.paddles.map(p => ({ ...p })), ball: { ...state.ball }, score: [...state.score] };
   return {
     ...state, score: [...state.score].reverse(),
-    paddles: [...state.paddles].reverse().map(p => ({ ...p, x: FIELD.width - p.x, vx: -p.vx })),
+    paddles: [...state.paddles].reverse().map(p => ({ ...p, x: FIELD.width - p.x, vx: -p.vx, dashX: -(p.dashX || 0) })),
     ball: { ...state.ball, x: FIELD.width - state.ball.x, vx: -state.ball.vx },
   };
 }

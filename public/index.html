@@ -3,63 +3,62 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#10171c">
+  <meta name="theme-color" content="#09121e">
   <title>DICT_PONG — オンライン エアホッケー</title>
   <meta name="description" content="名前ひとつでコートへ。オンライン1v1と3段階のCPU戦が楽しめる、5点先取のエアホッケー。">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" type="module"></script>
 </head>
-<body>
+<body data-view="home">
   <aside class="rail" aria-label="メインメニュー">
-    <a href="#viewPlay" class="brand" id="homeLink" aria-label="DICT_PONG ホーム"><span class="brand-mark">ı<span>•</span>ı</span><span class="brand-word">DICT_PONG<span>AIR HOCKEY CLUB</span></span></a>
+    <a href="#viewHome" class="brand" id="homeLink" aria-label="DICT_PONG ホーム"><span class="brand-mark">ı<span>•</span>ı</span><span class="brand-word">DICT_PONG<span>AIR HOCKEY CLUB</span></span></a>
     <nav>
-      <button class="nav-item active" data-view="play"><span class="nav-icon">▣</span><span>プレイ</span></button>
+      <button class="nav-item active" data-view="home"><span class="nav-icon">⌂</span><span>ホーム</span></button>
+      <button class="nav-item" id="gameNav" data-view="play" hidden><span class="nav-icon">▣</span><span id="gameNavLabel">対戦中</span></button>
       <button class="nav-item" data-view="stats"><span class="nav-icon">▥</span><span>マイ戦績</span></button>
       <button class="nav-item" id="helpButton"><span class="nav-icon">?</span><span>遊び方</span></button>
       <button class="nav-item" data-view="admin" id="adminNav" hidden><span class="nav-icon">⚙</span><span>管理</span></button>
     </nav>
-    <div class="rail-bottom"><span class="tiny-puck"></span><span>ONE MORE<br>GOOD RALLY.</span><small>VERSION 1.0</small></div>
+    <div class="rail-bottom"><span class="tiny-puck"></span><span>ONE MORE<br>GOOD RALLY.</span><small>VERSION 1.3</small></div>
   </aside>
 
   <div class="shell">
     <header class="topbar">
-      <div class="breadcrumb">AIR HOCKEY CLUB <span>/</span> <strong id="pageLabel">PLAY ARENA</strong></div>
+      <div class="breadcrumb">AIR HOCKEY CLUB <span>/</span> <strong id="pageLabel">HOME</strong></div>
       <div class="top-actions"><button class="connection" id="reconnectButton" aria-label="サーバーに再接続"><i id="connectionDot"></i><span id="connectionLabel">接続を確認中</span></button><span class="top-divider"></span><button class="profile-button" id="profileButton"><span class="avatar" id="topAvatar">G</span><span id="topName">ゲスト</span><span class="chevron">⌄</span></button></div>
     </header>
     <main>
       <div id="maintenance" class="maintenance" role="status" hidden><span>◷</span><div><strong>ただいまプレイをお休みしています</strong><p id="maintenanceMessage"></p></div></div>
 
-      <section id="viewPlay" class="view">
-        <div class="page-heading"><div><div class="eyebrow"><span class="orange-line"></span>READY FOR A RALLY?</div><h1>次の一打が、<span>待っている。</span></h1><p>名前ひとつでコートへ。さあ、5点先取の真剣勝負。</p></div><div class="live-pill"><span class="live-dot"></span><strong id="onlineCount">0</strong> 人がオンライン</div></div>
-        <div class="play-layout">
-          <div class="arena-column">
-            <div class="arena-card" id="arenaCard">
-              <div class="arena-top"><div class="arena-tag"><i></i><span id="arenaMode">PONG ARENA</span></div><div class="arena-tools"><span class="target-label">FIRST TO <b>5</b></span><button class="icon-button" id="soundButton" aria-label="サウンドをオンにする" title="サウンド">♪<span id="soundSlash">╱</span></button><button class="icon-button" id="fullscreenButton" aria-label="コートを全画面表示" title="全画面">⛶</button></div></div>
-              <div class="scoreboard"><div class="player-label"><span class="player-color self"></span><div><small>YOU / LEFT SIDE</small><strong id="selfName">あなた</strong></div></div><div class="score"><span id="selfScore">0</span><span class="score-separator">:</span><span id="opponentScore">0</span></div><div class="player-label opponent"><div><small>OPPONENT</small><strong id="opponentName">対戦相手</strong></div><span class="player-color other"></span></div></div>
-              <div class="court-wrap" id="courtWrap"><canvas id="court" width="1200" height="640" tabindex="0" aria-label="エアホッケーのコート。矢印キーまたはWASDで自分のバーを上下左右に移動。"></canvas><div class="court-overlay" id="courtOverlay"><div class="overlay-kicker" id="overlayKicker">YOUR COURT IS READY</div><h2 id="overlayTitle">はじめよう、ラリー。</h2><p id="overlayDescription">プレイヤー名を登録して、対戦モードを選ぼう。</p><div class="overlay-decoration"><span></span> ● <span></span></div></div><div class="countdown" id="countdown" hidden>3</div></div>
-              <div class="arena-bottom"><span><i class="keycap">↑</i><i class="keycap">↓</i><i class="keycap">←</i><i class="keycap">→</i><span>または WASD で移動</span></span><span class="touch-hint">ドラッグでも操作できます</span><button class="text-button danger" id="leaveButton" hidden>対戦を終了</button></div>
-            </div>
-            <div class="court-note"><span class="note-symbol">↔</span><div><strong>いつでも、自分が左側。</strong><span>上下左右に動いて、角度をつけて打ち返そう。</span></div><span class="note-number">01 — 05</span></div>
-          </div>
-
-          <aside class="setup-card">
-            <div class="section-kicker">PLAYER SETUP <span>01</span></div>
-            <form id="loginForm"><label for="nameInput">あなたのプレイヤー名</label><p class="form-note">パスワード不要。名前だけで参加できます。</p><div class="name-input-wrap"><span>☺</span><input id="nameInput" name="name" maxlength="16" placeholder="名前を入力" autocomplete="nickname" required></div><button class="button primary full" type="submit">コートに参加 <span>↗</span></button></form>
+      <section id="viewHome" class="view">
+        <div class="page-heading home-heading"><div><div class="eyebrow">DICT_PONG / LOBBY</div><h1>対戦を、はじめよう。</h1></div><div class="live-pill"><span class="live-dot"></span><strong id="onlineCount">0</strong> 人がオンライン</div></div>
+        <div class="home-layout">
+          <div class="home-intro"><img class="home-mascot" src="/HTdR38qbIAA86Ob.webp" alt="青い髪の応援キャラクター" width="112" height="108"><span class="eyebrow">ONE MORE GOOD RALLY.</span><h2>一打で、<br><span>流れを変えよう。</span></h2><p>名前を登録して、対戦モードを選択。<br>相手が決まったら、コートへ。</p><div class="home-controls"><div><i class="keycap">W</i><i class="keycap">A</i><i class="keycap">S</i><i class="keycap">D</i><strong>自由に移動</strong></div><p>同じ方向を2回押すとダッシュ。<br>スタミナを使って、一気に切り込もう。</p></div></div>
+          <aside class="setup-card" id="setupCard" aria-label="プレイヤー設定">
+            <div class="setup-heading"><div><span class="eyebrow">PLAYER SETUP</span><h2>プレイヤー設定</h2></div></div>
+            <form id="loginForm"><label for="nameInput">あなたのプレイヤー名</label><p class="form-note">パスワード不要。名前だけで参加できます。</p><div class="name-input-wrap"><span>☺</span><input id="nameInput" name="name" maxlength="16" placeholder="名前を入力" autocomplete="nickname" required></div><button class="button primary full" type="submit">名前を登録 <span>✓</span></button></form>
             <div id="playerProfile" hidden><div class="registered-profile"><span class="avatar large" id="playerAvatar">P</span><div><small>PLAYER</small><strong id="playerName"></strong></div><span class="registered-check">✓</span></div><button class="text-button small" id="logoutButton">名前を変更 / ログアウト</button></div>
             <div class="setup-divider"></div>
-            <div class="section-kicker">CHOOSE YOUR MATCH <span>02</span></div>
-            <div class="mode-tabs" role="tablist" aria-label="対戦モード"><button id="onlineTab" role="tab" aria-selected="true" class="selected">↗ オンライン</button><button id="cpuTab" role="tab" aria-selected="false">▧ CPU対戦</button></div>
-            <div id="onlineSetup"><h3>誰かと、ひと勝負。</h3><p class="form-note">オンラインの相手と自動でマッチング。</p><button class="button primary full play-action" id="queueButton">対戦相手を探す <span>→</span></button><div class="or-divider"><span>友だちと遊ぶ</span></div><button class="button secondary full play-action" id="createRoomButton">プライベートルームを作る</button><form id="joinRoomForm" class="room-join"><input id="roomCodeInput" placeholder="6文字のコード" maxlength="6" aria-label="ルームコード" autocomplete="off"><button class="button secondary play-action" type="submit">参加</button></form></div>
-            <div id="cpuSetup" hidden><h3>自分のペースで、磨こう。</h3><p class="form-note">3つのレベルでウォーミングアップ。</p><div class="difficulty"><button data-level="1"><span>01</span>EASY</button><button data-level="2" class="selected"><span>02</span>NORMAL</button><button data-level="3"><span>03</span>HARD</button></div><p class="difficulty-note" id="difficultyNote">程よい手応え。ラリーを楽しもう。</p><button class="button primary full play-action" id="cpuButton">CPUと対戦する <span>→</span></button></div>
-            <div id="waitingBox" class="waiting-box" hidden><div class="spinner"></div><strong id="waitingTitle">対戦相手を探しています</strong><p id="waitingText">もうすぐ、次のラリーが始まります。</p><button class="room-code" id="roomCodeButton" hidden title="ルームコードをコピー"></button><button class="text-button" id="cancelWaitingButton">待機をキャンセル</button></div>
-            <div class="setup-foot"><span>◎</span> 5点先取 <span>·</span> 1 vs 1 <span>·</span> 四方向移動</div>
+            <div class="match-options" id="matchOptions">
+            <div class="section-kicker">対戦モードを選ぶ</div>
+            <div class="mode-tabs" role="tablist" aria-label="対戦モード"><button id="onlineTab" role="tab" aria-selected="true" aria-controls="onlineSetup" class="selected">オンライン</button><button id="friendsTab" role="tab" aria-selected="false" aria-controls="friendsSetup">友だち</button><button id="cpuTab" role="tab" aria-selected="false" aria-controls="cpuSetup">CPU対戦</button></div>
+            <div id="onlineSetup" role="tabpanel" aria-labelledby="onlineTab"><h3>誰かと、ひと勝負。</h3><p class="form-note">オンラインの相手と自動でマッチング。</p><button class="button primary full play-action" id="queueButton">対戦相手を探す <span>→</span></button></div>
+            <div id="friendsSetup" role="tabpanel" aria-labelledby="friendsTab" hidden><h3>友だちをコートへ。</h3><p class="form-note">ルームを作るか、相手のコードで参加。</p><button class="button secondary full play-action" id="createRoomButton">プライベートルームを作る</button><form id="joinRoomForm" class="room-join"><input id="roomCodeInput" placeholder="6文字のコード" maxlength="6" aria-label="ルームコード" autocomplete="off"><button class="button secondary play-action" type="submit">参加</button></form></div>
+            <div id="cpuSetup" role="tabpanel" aria-labelledby="cpuTab" hidden><h3>自分のペースで、磨こう。</h3><p class="form-note">3つのレベルでウォーミングアップ。</p><div class="difficulty"><button data-level="1"><span>01</span>EASY</button><button data-level="2" class="selected"><span>02</span>NORMAL</button><button data-level="3"><span>03</span>HARD</button></div><p class="difficulty-note" id="difficultyNote">程よい手応え。ラリーを楽しもう。</p><button class="button primary full play-action" id="cpuButton">CPUと対戦する <span>→</span></button></div>
+            </div>
+            <div id="waitingBox" class="waiting-box" hidden><div class="spinner"></div><strong id="waitingTitle">対戦相手を探しています</strong><p id="waitingText">もうすぐ、次のラリーが始まります。</p><button class="room-code" id="roomCodeButton" hidden title="ルームコードをコピー"></button><button class="button secondary full" id="cancelWaitingButton">待機をキャンセル</button></div>
           </aside>
         </div>
+      </section>
 
-        <div class="section-heading"><div><span class="eyebrow">YOUR PROGRESS</span><h2>ラリーの足あと</h2></div><button class="text-button" data-view="stats">すべての戦績を見る <span>↗</span></button></div>
-        <div class="stat-grid" id="summaryStats"></div>
-        <div class="recent-card"><div class="card-heading"><h3>最近の対戦</h3><span class="muted">RECENT MATCHES</span></div><div id="recentMatches"></div></div>
+      <section id="viewPlay" class="view" hidden>
+        <div class="arena-card" id="arenaCard">
+          <div class="arena-top"><div class="arena-tag"><i></i><span id="arenaMode">PONG ARENA</span></div><div class="arena-tools"><button class="button secondary return-home-button" id="returnHomeButton" data-view="home" hidden>ホームに戻る</button><button class="surrender-button" id="leaveButton" hidden>⚑ 降参する</button><span class="target-label">5点先取</span><button class="icon-button" id="soundButton" aria-label="サウンドをオンにする" title="サウンド">♪<span id="soundSlash">╱</span></button><button class="icon-button" id="fullscreenButton" aria-label="コートを全画面表示" title="全画面">⛶</button></div></div>
+          <div class="scoreboard"><div class="player-label"><span class="player-color self"></span><div><small>YOU / LEFT SIDE</small><strong id="selfName">あなた</strong></div></div><div class="score"><span id="selfScore">0</span><span class="score-separator">:</span><span id="opponentScore">0</span></div><div class="player-label opponent"><div><small>OPPONENT</small><strong id="opponentName">対戦相手</strong></div><span class="player-color other"></span></div></div>
+          <div class="court-wrap" id="courtWrap"><canvas id="court" width="1200" height="640" tabindex="0" aria-label="エアホッケーのコート。WASDで移動。同じ方向を2回押してダッシュ。斜め移動・斜めダッシュも可能。"></canvas><div class="court-overlay" id="courtOverlay"><div class="overlay-kicker" id="overlayKicker">YOUR COURT IS READY</div><h2 id="overlayTitle">はじめよう、ラリー。</h2><p id="overlayDescription">プレイヤー名を登録して、対戦モードを選ぼう。</p><div class="overlay-decoration"><span></span> ● <span></span></div></div><div class="countdown" id="countdown" hidden>3</div></div>
+          <div class="stamina-panel" id="staminaPanel"><label for="staminaMeter">スタミナ <span id="staminaValue">100 / 100</span></label><meter id="staminaMeter" min="0" max="100" low="35" optimum="100" value="100">100 / 100</meter><span id="staminaHint">ダブルタップでダッシュ</span></div><div class="arena-bottom"><span><i class="keycap">W</i><i class="keycap">A</i><i class="keycap">S</i><i class="keycap">D</i><span>移動 / 2回押しでダッシュ</span></span><span class="touch-hint">ドラッグでも操作できます</span></div>
+        </div>
       </section>
 
       <section id="viewStats" class="view" hidden>
@@ -73,17 +72,26 @@
 
       <section id="viewAdmin" class="view" hidden>
         <div class="page-heading"><div><div class="eyebrow"><span class="orange-line"></span>CONTROL ROOM</div><h1>コートの<span>管理室。</span></h1><p>chun としてログイン中。プレイ状況と運営設定を確認できます。</p></div><button class="button secondary" id="refreshAdminButton">↻ 更新</button></div>
-        <div class="admin-grid"><div class="panel"><div class="card-heading"><h3>ゲームの稼働設定</h3><span id="adminRunningState" class="tag">稼働中</span></div><form id="settingsForm"><label class="switch-row"><span><strong>すべてのゲームを停止</strong><small>進行中の対戦を中断し、新規対戦を止めます。</small></span><input type="checkbox" id="pausedInput"></label><label for="messageInput">停止中のメッセージ</label><textarea id="messageInput" maxlength="200" rows="2"></textarea><div class="setup-divider"></div><label class="switch-row"><span><strong>毎日のプレイ制限</strong><small>日本時間。深夜をまたぐ時間帯も設定できます。</small></span><input type="checkbox" id="dailyEnabledInput"></label><div class="time-grid"><div><label for="dailyStartInput">開始 (JST)</label><input type="time" id="dailyStartInput" value="23:00" required></div><span>→</span><div><label for="dailyEndInput">終了 (JST)</label><input type="time" id="dailyEndInput" value="07:00" required></div></div><div class="setup-divider"></div><h4>日時を指定して停止</h4><p class="form-note">入力と表示はお使いの端末の現地時間です。</p><div id="scheduleList"></div><button type="button" class="button secondary full" id="addScheduleButton">＋ 停止予定を追加</button><button type="submit" class="button primary full save-settings">設定を保存する <span>✓</span></button><p class="form-note">保存するまで設定は反映されません。</p></form></div><div class="panel"><div class="card-heading"><h3>いま接続しているプレイヤー</h3><span class="tag" id="connectedCount">0 人</span></div><p class="form-note">5秒ごとに自動更新。CPU戦も表示します。</p><div id="connectedPlayers"></div></div></div>
-        <div class="recent-card"><div class="card-heading"><h3>プレイヤー一覧・戦績</h3><span class="muted">新しい登録から最大1,000人</span></div><div id="adminPlayers"></div></div>
-        <div id="adminPlayerDetail" class="panel" hidden><div class="card-heading"><h3 id="adminDetailTitle"></h3><button class="text-button" id="closeAdminDetail">閉じる ×</button></div><div class="stat-grid" id="adminDetailStats"></div><div id="adminDetailOpponents"></div><div id="adminDetailMatches"></div></div>
+        <div class="filter-tabs admin-tabs" role="tablist" aria-label="管理画面の表示"><button id="adminSettingsTab" data-admin-section="settings" role="tab" aria-selected="true" class="selected" aria-controls="adminSettingsPanel">稼働設定</button><button id="adminConnectionsTab" data-admin-section="connections" role="tab" aria-selected="false" aria-controls="adminConnectionsPanel">接続中</button><button id="adminRecordsTab" data-admin-section="records" role="tab" aria-selected="false" aria-controls="adminRecordsPanel">プレイヤー戦績</button></div>
+        <div id="adminSettingsPanel" class="panel" role="tabpanel" aria-labelledby="adminSettingsTab">
+          <div class="card-heading"><h3>ゲームの稼働設定</h3><span id="adminRunningState" class="tag">稼働中</span></div>
+          <form id="settingsForm"><div class="settings-columns">
+            <section><h4>全体の停止</h4><label class="switch-row"><span><strong>すべてのゲームを停止</strong><small>進行中の対戦を中断し、新規対戦を止めます。</small></span><input type="checkbox" id="pausedInput"></label><label for="messageInput">停止中のメッセージ</label><textarea id="messageInput" maxlength="200" rows="3"></textarea></section>
+            <section><h4>毎日のプレイ制限</h4><label class="switch-row"><span><strong>時間帯を指定して停止</strong><small>日本時間。深夜をまたぐ時間帯も設定できます。</small></span><input type="checkbox" id="dailyEnabledInput"></label><div class="time-grid"><div><label for="dailyStartInput">開始 (JST)</label><input type="time" id="dailyStartInput" value="23:00" required></div><span>→</span><div><label for="dailyEndInput">終了 (JST)</label><input type="time" id="dailyEndInput" value="07:00" required></div></div></section>
+            <section><h4>日時を指定して停止</h4><p class="form-note">端末の現地時間で入力。20件まで登録できます。</p><div id="scheduleList"></div><button type="button" class="button secondary full" id="addScheduleButton">＋ 停止予定を追加</button></section>
+          </div><button type="submit" class="button primary save-settings">設定を保存する <span>✓</span></button><p class="form-note">保存するまで設定は反映されません。</p></form>
+        </div>
+        <div id="adminConnectionsPanel" class="panel" role="tabpanel" aria-labelledby="adminConnectionsTab" hidden><div class="card-heading"><h3>いま接続しているプレイヤー</h3><span class="tag" id="connectedCount">0 人</span></div><p class="form-note">5秒ごとに自動更新。CPU戦も表示します。</p><div id="connectedPlayers"></div></div>
+        <div id="adminRecordsPanel" role="tabpanel" aria-labelledby="adminRecordsTab" hidden><div class="recent-card"><div class="card-heading"><h3>プレイヤー一覧・戦績</h3><span class="muted">新しい登録から最大1,000人</span></div><div id="adminPlayers"></div></div>
+        <div id="adminPlayerDetail" class="panel" hidden><div class="card-heading"><h3 id="adminDetailTitle"></h3><button class="text-button" id="closeAdminDetail">閉じる ×</button></div><div class="stat-grid" id="adminDetailStats"></div><div id="adminDetailOpponents"></div><div id="adminDetailMatches"></div></div></div>
       </section>
 
       <footer><span class="footer-brand">DICT_PONG<span>®</span></span><span>A LITTLE COMPETITION. A LOT OF GOOD RALLIES.</span><span>5 POINTS. ONE WINNER.</span></footer>
     </main>
   </div>
 
-  <dialog id="helpDialog"><div class="dialog-head"><span class="eyebrow">HOW TO PLAY</span><button class="icon-button close-dialog" aria-label="閉じる">×</button></div><h2>一打ずつ、楽しもう。</h2><div class="help-steps"><div><span>01</span><div><h3>名前を登録</h3><p>好きな名前で参加。同じ名前の戦績は引き継がれます。大文字と小文字は別の名前です。</p></div></div><div><span>02</span><div><h3>対戦を選ぶ</h3><p>自動マッチング、友だちとのルーム対戦、3段階のCPU戦。どれも5点先取です。</p></div></div><div><span>03</span><div><h3>バーを上下左右へ</h3><p>矢印キー / WASD、またはコート上のドラッグで操作。自分の陣地内を自由に移動できます。常に自分が左側です。</p></div></div><div><span>04</span><div><h3>ゴールを狙う</h3><p>バーの上下左右どの面でも打ち返せます。上下の壁は反射、左右中央のゴールを通り抜けると得点。それ以外の側面は壁で反射。動きながら当てると軌道が変わります。</p></div></div></div><p class="dialog-note">対戦の終了・切断は負けになります。管理者による停止、サーバー終了、15分の時間切れは勝敗なしの中断です。接続は1つの名前につき1画面までです。</p><button class="button primary full close-dialog">さあ、コートへ →</button></dialog>
-  <dialog id="confirmDialog"><div class="dialog-head"><span class="eyebrow">LEAVE THE COURT?</span><button class="icon-button" id="cancelLeaveIcon" aria-label="閉じる">×</button></div><h2>対戦を終了しますか？</h2><p>進行中の試合は負けとして記録されます。</p><div class="dialog-actions"><button class="button secondary" id="cancelLeaveButton">プレイを続ける</button><button class="button primary" id="confirmLeaveButton">終了する</button></div></dialog>
+  <dialog id="helpDialog"><div class="dialog-head"><span class="eyebrow">HOW TO PLAY</span><button class="icon-button close-dialog" aria-label="閉じる">×</button></div><h2>一打ずつ、楽しもう。</h2><div class="help-steps"><div><span>01</span><div><h3>名前を登録</h3><p>好きな名前で参加。同じ名前の戦績は引き継がれます。大文字と小文字は別の名前です。</p></div></div><div><span>02</span><div><h3>対戦を選ぶ</h3><p>自動マッチング、友だちとのルーム対戦、3段階のCPU戦。どれも5点先取です。</p></div></div><div><span>03</span><div><h3>バーを上下左右へ</h3><p>WASDで移動。同じ方向を素早く2回押すとダッシュし、スタミナを35消費します。Wを押しながらDを2回押すと右上へダッシュ。斜めでも速さ・消費量は同じです。スタミナは自動回復。矢印キーやドラッグでの移動にも対応しています。常に自分が左側です。</p></div></div><div><span>04</span><div><h3>ゴールを狙う</h3><p>バーの上下左右どの面でも打ち返せます。上下の壁は反射、左右中央のゴールを通り抜けると得点。それ以外の側面は壁で反射。動きながら当てると軌道が変わります。</p></div></div></div><p class="dialog-note">対戦の終了・切断は負けになります。管理者による停止、サーバー終了、15分の時間切れは勝敗なしの中断です。接続は1つの名前につき1画面までです。</p><button class="button primary full close-dialog">さあ、コートへ →</button></dialog>
+  <dialog id="confirmDialog" aria-labelledby="surrenderTitle" aria-describedby="surrenderDescription"><div class="dialog-head"><span class="eyebrow">SURRENDER?</span><button class="icon-button" id="cancelLeaveIcon" aria-label="閉じる">×</button></div><h2 id="surrenderTitle">この試合を降参しますか？</h2><p id="surrenderDescription">あなたの負けとして記録し、現在の得点で試合を終了します。</p><div class="dialog-actions"><button class="button secondary" id="cancelLeaveButton" autofocus>プレイを続ける</button><button class="button danger-button" id="confirmLeaveButton">降参して終了</button></div></dialog>
   <div class="toast" id="toast" role="status" hidden></div>
 </body>
 </html>

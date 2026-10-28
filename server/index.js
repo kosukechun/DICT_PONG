@@ -14,6 +14,8 @@ const rates = new Map();
 let settings = store.settings(), lastBlocked = false, shuttingDown = false;
 const originKey = process.env.ORIGIN_KEY || '';
 const cookieSecure = process.env.SECURE_COOKIE === 'true';
+// CloudWatch can discover these JSON fields. Never log names, sessions or IPs.
+const log = (event, fields = {}) => console.log(JSON.stringify({ timestamp: new Date().toISOString(), event, ...fields }));
 const send = (client, message) => { if (client?.ws.readyState === WebSocket.OPEN && client.ws.bufferedAmount < 128 * 1024) client.ws.send(JSON.stringify(message)); };
 const errorMessage = (client, message) => send(client, { type: 'error', message });
 const tokenOf = req => (req.headers.cookie || '').split(';').map(x => x.trim()).find(x => x.startsWith('pong_session='))?.slice(13) || '';
@@ -60,16 +62,18 @@ function startMatch(first, second, mode, level) {
   matches.set(match.id, match);
   match.players.forEach((p, side) => {
     if (p.cpu) return;
-    p.match = match.id; p.side = side; p.input = {};
+    p.match = match.id; p.side = side; p.input = {}; p.dashSequence = 0; p.pendingDash = null;
     send(p, { type: 'match', id: match.id, mode, level, you: p.name, opponent: match.players[1 - side].name, field: FIELD, state: viewState(match.state, side), started: match.started });
   });
   broadcastPresence();
+  log('match_started', { matchId: match.id, mode, level: level || null });
 }
 function endMatch(match, winner, reason) {
   if (!matches.has(match.id)) return;
   // Commit both players' results in one transaction before announcing the result.
   store.record(match, winner, reason);
   matches.delete(match.id);
+  log('match_finished', { matchId: match.id, mode: match.mode, reason, outcome: winner === 'cancelled' ? 'cancelled' : 'completed', durationSeconds: Math.floor((Date.now() - match.started) / 1000), score: match.state.score });
   match.players.forEach((p, side) => {
     if (p.cpu) return;
     p.match = null; p.input = {};
@@ -106,7 +110,7 @@ async function readJSON(req) {
   }
   try { return JSON.parse(body || '{}'); } catch { const e = new Error('JSON形式が正しくありません。'); e.status = 400; throw e; }
 }
-const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
+const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.webp': 'image/webp' };
 const server = http.createServer(async (req, res) => {
   const json = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); };
   res.setHeader('Cache-Control', 'no-store');
@@ -165,13 +169,13 @@ const server = http.createServer(async (req, res) => {
       return json(404, { error: 'このAPIは存在しません。' });
     }
     if (!['GET', 'HEAD'].includes(req.method)) return json(405, { error: 'この操作には対応していません。' });
-    const files = { '/': 'index.html', '/index.html': 'index.html', '/style.css': 'style.css', '/app.js': 'app.js', '/field.js': 'field.js', '/favicon.svg': 'favicon.svg' };
+    const files = { '/': 'index.html', '/index.html': 'index.html', '/style.css': 'style.css', '/app.js': 'app.js', '/field.js': 'field.js', '/favicon.svg': 'favicon.svg', '/HTdR38qbIAA86Ob.webp': 'HTdR38qbIAA86Ob.webp' };
     const file = files[url.pathname];
     if (!file) return json(404, { error: 'ページが見つかりません。' });
     const data = await readFile(resolve(root, 'public', file));
     res.writeHead(200, { 'Content-Type': mime[extname(file)] }); res.end(req.method === 'HEAD' ? undefined : data);
   } catch (error) {
-    console.error('Request error:', error.message);
+    log('request_error', { status: error.status || 500, errorType: error.name });
     if (!res.headersSent) json(error.status || 500, { error: error.status ? error.message : 'サーバーでエラーが発生しました。' });
     else res.end();
   }
@@ -188,6 +192,7 @@ server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, ws => {
     const client = { ...player, ws, token: tokenOf(req), input: {}, match: null, waiting: false, room: null, alive: true, connectedAt: Date.now(), messages: 0, messageWindow: Date.now() };
     clients.set(player.id, client);
+    log('player_connected', { online: clients.size });
     ws.on('pong', () => { client.alive = true; });
     ws.on('error', () => {});
     send(client, { type: 'hello', player, ...publicStatus() }); broadcastPresence();
@@ -198,6 +203,11 @@ server.on('upgrade', (req, socket, head) => {
       if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return ws.close(1008, 'invalid message');
       if (msg.type === 'input') {
         if (!client.match) return;
+        const dash = msg.dash;
+        if (Number.isSafeInteger(dash?.id) && dash.id > client.dashSequence && [dash.dx, dash.dy].every(n => Number.isInteger(n) && Math.abs(n) <= 1) && (dash.dx || dash.dy)) {
+          client.dashSequence = dash.id;
+          client.pendingDash = { dx: dash.dx * (client.side ? -1 : 1), dy: dash.dy };
+        }
         if (Number.isFinite(msg.x) && Number.isFinite(msg.y)) client.input = { x: client.side ? FIELD.width - clamp(msg.x, 35, 545) : clamp(msg.x, 35, 545), y: clamp(msg.y, 64, 576) };
         else client.input = { dx: clamp(Number(msg.dx) || 0, -1, 1) * (client.side ? -1 : 1), dy: clamp(Number(msg.dy) || 0, -1, 1) };
         client.inputAt = Date.now(); return;
@@ -237,6 +247,7 @@ server.on('upgrade', (req, socket, head) => {
       const match = matches.get(client.match);
       if (match) endMatch(match, 1 - client.side, 'disconnect');
       clearWaiting(client); clients.delete(client.id); broadcastPresence();
+      log('player_disconnected', { online: clients.size });
     });
   });
 });
@@ -248,7 +259,11 @@ const timer = setInterval(() => {
     for (const match of [...matches.values()]) {
       match.players.forEach((p, side) => {
         if (p.cpu) { const cpu = cpuInput(match, now / 1000); movePaddle(match.state.paddles[side], cpu.input, side, 1 / 60, cpu.speed); }
-        else movePaddle(match.state.paddles[side], Date.now() - (p.inputAt || 0) < 600 ? p.input : {}, side, 1 / 60);
+        else {
+          const input = Date.now() - (p.inputAt || 0) < 600 ? { ...p.input, dash: p.pendingDash } : {};
+          movePaddle(match.state.paddles[side], input, side, 1 / 60);
+          p.pendingDash = null;
+        }
       });
       const scorer = stepBall(match.state, 1 / 60);
       if (scorer !== null && match.state.score[scorer] >= FIELD.target) endMatch(match, scorer, 'score');
@@ -263,6 +278,7 @@ const timer = setInterval(() => {
   }
 }, 1000 / 120);
 const restrictions = setInterval(applyRestrictions, 1000);
+const usage = setInterval(() => log('usage', { ...publicStatus(), message: undefined, memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024) }), 60000);
 const heartbeat = setInterval(() => {
   for (const c of clients.values()) {
     if (!c.alive || !store.session(c.token)) { c.ws.terminate(); continue; }
@@ -271,10 +287,11 @@ const heartbeat = setInterval(() => {
   for (const [key, value] of rates) if (value.until < Date.now()) rates.delete(key);
 }, 15000);
 lastBlocked = Boolean(blockedAt(settings));
-server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => console.log(`DICT_PONG ready: http://${process.env.HOST || '127.0.0.1'}:${server.address().port}`));
+server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`DICT_PONG ready: http://${process.env.HOST || '127.0.0.1'}:${server.address().port}`); log('server_started'); });
 function shutdown() {
   if (shuttingDown) return; shuttingDown = true;
-  clearInterval(timer); clearInterval(restrictions); clearInterval(heartbeat);
+  clearInterval(timer); clearInterval(restrictions); clearInterval(heartbeat); clearInterval(usage);
+  log('server_stopping');
   for (const match of [...matches.values()]) endMatch(match, 'cancelled', 'restart');
   for (const c of clients.values()) c.ws.close(1001, 'server restart');
   wss.close(); server.close(() => { store.close(); process.exit(0); });

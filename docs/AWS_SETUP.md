@@ -2,9 +2,26 @@
 
 GitやGitHubは使いません。PCにAWS CLIやプログラミング環境を入れる必要もありません。アプリZIPをS3へ、YAMLをCloudFormationへアップロードすると、必要なサーバー一式を自動作成します。
 
+## 最初に：どのファイルを、どこへ送るか
+
+**まず `PONG-AWS-kit.zip` を右クリック →「すべて展開」。中にあるファイルを次のように使います。**
+
+| PC上のファイル | AWSで開く画面 | すること |
+| --- | --- | --- |
+| `pong-app.zip` | S3 → 自分のバケット → アップロード | ZIPのまま送る。バケット直下に `pong-app.zip` が1個見えればOK |
+| `pong-stack.yaml` | CloudFormation → スタックの作成 → テンプレートファイルのアップロード | YAMLだけを選ぶ。S3に送ったZIPはここでは選ばない |
+| `AWS_SETUP.html` | PCのブラウザ | この手順書。AWSに送らない |
+| `ARCHITECTURE.svg` | PCのブラウザ | 構成図。AWSに送らない |
+
+例：S3画面上部に `my-dict-pong-20261028-example`、オブジェクト一覧に `pong-app.zip` が表示されている場合、CloudFormationの **ArtifactBucket は `my-dict-pong-20261028-example`、ArtifactKey は `pong-app.zip`** です。
+
+`PONG-AWS-kit.zip` をそのままS3に送ると起動できません。`pong-app.zip` を展開して中身を送るのも別の操作です。更新時は同じバケット・同じキーに新しい `pong-app.zip` を上書きします。
+
+すでに公開済みなら「8. ゲームを更新する」と「8-A. 既存AWS環境への反映」を使います。新しいスタックを重複作成する必要はありません。
+
 ## 1. 用意するもの
 
-- AWSアカウントと、CloudFormation・EC2・VPC・IAM・S3・CloudFront・Secrets Manager・Systems Managerを作成・管理できるAWS操作権限。
+- AWSアカウントと、CloudFormation・EC2・VPC・IAM・S3・CloudFront・Secrets Manager・Systems Manager・EventBridge Scheduler・CloudWatchを作成・管理できるAWS操作権限。
 - 配布ZIP `PONG-AWS-kit.zip` をPCで展開したフォルダ。
 - 中の `pong-app.zip` と `pong-stack.yaml`。**`pong-app.zip` はAWS用には展開しません。**
 - 初回の作成が完了するまで待てる時間。サーバー初期設定やCloudFrontの準備に時間がかかります。
@@ -52,6 +69,9 @@ AWSサービスは課金対象です。EC2を起動している時間、EBS、�
 | ArtifactKey | `pong-app.zip` |
 | InstanceType | 最初は既定の `t3.small`。小規模な試運転なら `t3.micro` も選択可能 |
 | DataVolumeSize | 既定の `8` のまま（データ用ディスク8GiB） |
+| CpuCredits | `standard`：CPUクレジット超過による追加料金を抑制。残量ゼロでは処理速度が制限される |
+| EnableNightSchedule | `true`：毎日、日本時間0時にEC2停止・8時に起動 |
+| LogRetentionDays | `7`：CloudWatchログを7日保存した後、自動削除 |
 | LatestAmiId | 既定値を変更しません |
 
 7. 次の画面のタグや追加設定は、必要がなければ既定のまま進めます。
@@ -60,6 +80,8 @@ AWSサービスは課金対象です。EC2を起動している時間、EBS、�
 10. イベントを確認し、スタック全体が **`CREATE_COMPLETE`** になるまで待ちます。
 
 自動で専用VPC、EC2サーバー、固定IP、データ用ディスク、HTTPS配信用CloudFront、バックアップ、更新用コマンドを作成します。SSH用の鍵や独自ドメインの取得は不要です。プレイヤーや管理者用のパスワードも作成しません。
+
+加えて夜間停止・朝の起動スケジュール、CloudWatchログ、利用状況ダッシュボードを自動作成します。
 
 **`GameServer` だけが完了していても、初期設定が終わったとは限りません。** `ServerReady` とCloudFrontを含むスタック全体の完了を確認してください。初期設定に失敗した場合は正常完了にせず、待機リソースを失敗させる構成です。
 
@@ -79,8 +101,10 @@ AWSサービスは課金対象です。EC2を起動している時間、EBS、�
 
 - 別の端末またはシークレットウィンドウで、異なる名前を使います。
 - 2人とも **対戦相手を探す** を押すと、自動で対戦が始まります。
-- 友だちだけと遊ぶ場合は片方がルームを作り、表示された6文字のコードを相手に伝えます。相手がコードを入力して **参加** を押します。
+- 友だちだけと遊ぶ場合は **友だちタブ** で片方がルームを作り、表示された6文字のコードを相手に伝えます。相手も友だちタブでコードを入力して **参加** を押します。
 - どちらのプレイヤーにも自分が左側に見えます。
+- 対戦中はコート上部の **降参する** から、確認後に試合を終了できます。現在の得点で自分の負け・相手の勝ちを記録します。
+- ダークモードのホームで名前と対戦モードを選びます。ホームにはゲーム画面を表示せず、対戦開始時にコートへ自動で切り替えます。試合後は **ホームに戻る** で戻れます。戦績は **マイ戦績** にまとめています。
 
 ### 管理者
 
@@ -130,6 +154,55 @@ AWSサービスは課金対象です。EC2を起動している時間、EBS、�
 
 更新を繰り返してもURLは変わりません。CloudFrontのキャッシュは無効化しているので、通常はキャッシュ削除操作は不要です。
 
+## 8-A. 既存AWS環境への反映（夜間停止・ログ）
+
+**アプリZIPの更新だけでは、AWSの夜間停止やログ用リソースは増えません。今回のYAMLへのスタック更新も必要です。** 作業は日本時間8時以降に行います。
+
+1. `chun` で全体停止を保存し、S3に最新バックアップがあることと、現在の `ServerInstanceId`・`PersistentDataVolume` を控えます。
+2. 新しい `pong-app.zip` をS3の同じ場所に上書きします。
+3. CloudFormation → 既存のスタック → **更新 → 既存のスタックに直接更新 → 現在のテンプレートを置き換える → テンプレートファイルのアップロード** で、新しい `pong-stack.yaml` を選びます。画面の文言が異なる場合も「既存スタックのテンプレート置換」を選びます。
+4. **ArtifactBucket / ArtifactKey / InstanceType / DataVolumeSize は現在の値を維持**。新設の `CpuCredits=standard`、`EnableNightSchedule=true`、`LogRetentionDays=7` を確認します。サーバーサイズ変更は後日、別の更新で行います。
+5. 変更セットでScheduler・ロググループ・ダッシュボード・IAM・SSMドキュメントの追加を確認します。UserData変更によりEC2が停止・再起動することがあります。**GameServerやDataVolumeに「置換」が表示されたら実行せず、AMI等の変更原因を確認**してください。今回の追加のためにデータディスクを作り直す必要はありません。
+6. IAMリソース作成の承認にチェックを入れて更新し、`UPDATE_COMPLETE` を待ちます。
+7. **更新後の出力** にある `UpdateCommandDocument` と `ServerInstanceId` で、手順8のRun Commandを実行します。古いサーバーには古い更新スクリプトが残っているため、この1回では監視設定がまだ入らない場合があります。
+8. 続いて出力の **`MonitoringCommandDocument`** をRun Commandで同じ1台に実行し、`Success` を確認します。新しいアプリ内の監視設定を適用し、ゲームを再起動します。何度実行しても同じ設定になります。
+9. 出力の `DashboardURL` を開き、1〜2分後にログと利用状況を確認します。GameURLで操作を試し、ゲーム内の全体停止を解除します。
+
+初回新規作成時には監視設定も自動実行されるので、この追加作業は不要です。スタック更新で設定したスケジュールは次の指定時刻から動きます。午前1時に設定しても直ちに停止するわけではありません。
+
+## 8-B. 夜間停止と費用を確認する
+
+- 毎日 **00:00に停止、08:00に起動**。タイムゾーンは `Asia/Tokyo` 固定です。8時の起動指示後、OS・ゲームが使えるまで数分かかります。停止中はゲーム画面もCPU戦も利用できず、CloudFrontの接続エラーが表示されることがあります。
+- 正常停止時は進行中の試合を勝敗なしの中断として保存します。朝は新しい試合を始めます。ディスク上の戦績・設定、Elastic IP、GameURLは維持します。
+- 24時間稼働と比べ、EC2の稼働時間は24時間から約16時間になり、**オンデマンドのEC2稼働時間に対する費用を約33%削減**できます。請求総額が33%下がるという意味ではありません。
+- **EBS（OS用12GiB＋データ用8GiB）と固定パブリックIPv4は停止中も課金対象**です。S3・CloudFront・Secrets Manager・CloudWatch・Scheduler等の利用料は別です。予約やSavings Plans等の契約がある場合、停止しても契約料金は減りません。
+- `t3.small` を既定のままにし、少人数で使うならバックアップ後に `t3.micro` を試します。CloudWatchでCPU・CPUクレジット・メモリと実際のラグを見て判断します。`standard` はクレジット不足時にCPU性能を制限します。人数の保証値はありません。
+- まずログを7日保存、ダッシュボード表示期間を3時間にします。自動更新はオフまたは長めにします。Logs Insightsはスキャン量で課金されるため、長期間のクエリを何度も更新しないようにします。追加のカスタムメトリクスは発行しません。ダッシュボード・ログ自体にも料金がかかる場合があります。
+- S3のバックアップに30日などのライフサイクルを設定し、AWS Budgetsで自分の上限額を通知するようにします。Budgetsは料金を自動で止める機能ではありません。
+
+設定場所：CloudFormation出力の `ScheduleGroup` → **Amazon EventBridge → スケジューラ → スケジュールグループ**。2件のターゲットが出力の `ServerInstanceId` と一致し、タイムゾーンがAsia/Tokyoになっていることを確認します。動作失敗はSchedulerのモニタリングで呼び出し・ターゲットエラーを確認します。EC2の開始失敗時は、同じ1台を手動で開始できます。
+
+夜間に作業する日は、CloudFormation更新で `EnableNightSchedule=false` にしてから必要に応じてEC2を手動起動します。翌日の起動も無効になるので、作業後は `true` に戻してください。ゲーム内のプレイ制限はAWSスケジュールとは別の設定です。
+
+## 8-C. AWSコンソールで利用ログを見る
+
+1. CloudFormation → 自分のスタック → 出力 → **`DashboardURL`** を開きます。CloudWatchで `スタック名-operations` を探しても同じです。
+2. 「Online players / active matches」で接続人数と試合数、「Finished / interrupted matches」でCPU・オンライン別の終了数と中断理由を確認します。CPU・通信量・CPUクレジットはEC2標準メトリクスです。
+3. 「Recent usage and memory」で直近の人数・待機数・Node.jsプロセスのRSSメモリ（MB）を確認します。これはOS全体のメモリ使用率ではありません。ゲームの値は起動中に1分ごと、EC2の値は通常5分間隔で届きます。
+4. 個別のログは **CloudWatch → ロググループ → 出力の `ApplicationLogs`** を開きます。`インスタンスID/application` はゲーム、`インスタンスID/nginx-error` はnginxのエラーです。ゲームは試合ID・モード・終了理由・得点を記録し、名前・Cookie・セッション・IPはアプリイベントに記録しません。nginxエラーにはリクエスト情報が含まれる場合があります。
+5. 日付範囲を絞り、必要ならタイムゾーンをローカル時刻にします。アプリ内の `timestamp` はUTCです。Logs Insightsでは次を使えます。
+
+```text
+fields @timestamp, event, mode, reason, durationSeconds, score
+| filter event = "match_finished"
+| sort @timestamp desc
+| limit 50
+```
+
+起動直後や無人の時間は試合一覧が空で正常です。夜間停止中は新しいログが届きません。8時以降も利用ログが出なければEC2の稼働状態と、`MonitoringCommandDocument` の実行結果を確認します。対戦の全履歴はSQLiteに残り、CloudWatchは設定した日数分だけを保存します。
+
+ダッシュボードの試合数は選択期間内の終了イベント数で、切断・途中終了・中断も含めて理由別に表示します。ゲーム内の勝率集計とは定義が異なります。
+
 ## 9. 調子が悪いとき
 
 ### スタック作成が失敗した
@@ -149,7 +222,8 @@ AWSサービスは課金対象です。EC2を起動している時間、EBS、�
 
 ```bash
 sudo systemctl status pong nginx
-sudo journalctl -u pong -n 100 --no-pager
+sudo tail -n 100 /var/log/pong/application.log
+sudo systemctl status amazon-cloudwatch-agent
 sudo tail -n 100 /var/log/cloud-init-output.log
 sudo journalctl -u pong-backup -n 50 --no-pager
 sudo systemctl list-timers pong-backup.timer
@@ -220,11 +294,15 @@ S3バージョニングやSecrets Managerの削除待機期間などにより、
 
 ## 12. 構成と確認状況
 
+![DICT_PONG AWSアーキテクチャ図](architecture.svg)
+
+図の単体ファイルは配布キットの `ARCHITECTURE.svg` です。拡大しても文字が鮮明なSVG形式で、PCのブラウザで開けます。
+
 ブラウザからCloudFrontへはHTTPS/WSS、CloudFrontからEC2へはHTTPで転送します。EC2のアプリは自動生成のオリジンヘッダーを確認します。このヘッダーはAWSが内部で設定するもので、プレイヤーや `chun` が入力するものではありません。
 
 1台のEC2で全ゲームを管理する小規模向け構成です。複数台への分散・無停止更新・自動スケーリングはありません。CPU戦もサーバーで処理するので、AWS側が停止中は遊べません。
 
-配布前に、物理演算、2人のWebSocket対戦での5点先取、左右反転操作、CPU3段階、戦績の保存と再起動、相手別集計、全体停止、停止予約、名前のみの管理判定、画面のDOM動作をテストしています。YAMLは `cfn-lint` で静的検証しています。**実際のAWSアカウントへの作成と、実ブラウザの表示・操作の自動確認は未実施です。**
+配布前に19件のテストで、ダッシュ・スタミナ・8方向移動・ゴール拡大、2人のWebSocket対戦での5点先取、左右反転操作、CPU3段階、戦績の保存と再起動、相手別集計、全体停止、停止予約、名前のみの管理判定、画面のDOM動作を確認しています。YAMLは `cfn-lint` で静的検証しています。**実AWSへの反映と、CloudWatch・時刻指定停止の実動作は未検証です。ブラウザ操作の許可がタイムアウトしたため、今回の画面の目視確認も未実施です。**
 
 ## AWS公式資料
 
@@ -233,3 +311,9 @@ S3バージョニングやSecrets Managerの削除待機期間などにより、
 - サーバー接続：[Session Manager](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html)
 - 見積もり：[AWS Pricing Calculator](https://calculator.aws/)
 - 利用料金の把握：[AWS Budgets](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html)
+- 時刻・タイムゾーン：[SchedulerのCloudFormation設定](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-scheduler-schedule.html)
+- EC2の開始・停止を直接呼び出す：[Schedulerのユニバーサルターゲット](https://docs.aws.amazon.com/scheduler/latest/UserGuide/managing-targets-universal.html)
+- 停止中の課金：[EC2の状態別課金](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-lifecycle.html)
+- 固定IPv4の料金：[VPCの料金](https://aws.amazon.com/vpc/pricing/)
+- ログ収集：[CloudWatch Agent設定](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Agent-Configuration-File-Details.html)
+- ログ検索の費用：[CloudWatchの料金](https://aws.amazon.com/cloudwatch/pricing/)

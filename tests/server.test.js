@@ -60,6 +60,15 @@ test('real HTTP / WebSocket game, five points, mirrored input, CPU, admin stops 
   b.send({ type: 'joinRoom', code: room.code }); const am = await a.next('match'), bm = await b.next('match');
   assert.equal(am.opponent, 'Bob'); assert.equal(bm.opponent, 'Alice');
   assert.equal(am.state.paddles[0].x, 90); assert.equal(bm.state.paddles[0].x, 90);
+  for (const client of [a, b]) client.send({ type: 'input', dx: 0, dy: 0, dash: { id: 1, dx: 1, dy: -1 }, stamina: 999 });
+  await delay(150);
+  for (const client of [a, b]) {
+    assert.ok(client.last.paddles[0].x > 150);
+    assert.equal(client.last.paddles[0].stamina, 65);
+    client.send({ type: 'input', dx: 0, dy: 0, dash: { id: 1, dx: 1, dy: -1 } });
+  }
+  await delay(150);
+  assert.equal(a.last.paddles[0].stamina, 65); assert.equal(b.last.paddles[0].stamina, 65);
   a.send({ type: 'input', dx: 1, dy: 0 }); b.send({ type: 'input', dx: 1, dy: 0 }); await delay(150);
   assert.ok(a.last.paddles[0].x > 100); assert.ok(b.last.paddles[0].x > 100);
   const follow = setInterval(() => {
@@ -69,6 +78,9 @@ test('real HTTP / WebSocket game, five points, mirrored input, CPU, admin stops 
   let resultA, resultB;
   try { [resultA, resultB] = await Promise.all([a.next('result', 35000), b.next('result', 35000)]); } finally { clearInterval(follow); }
   assert.equal(resultA.outcome, 'win'); assert.equal(resultA.score[0], 5); assert.equal(resultB.outcome, 'loss'); assert.equal(resultB.score[1], 5);
+  const events = logs.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line));
+  assert.ok(events.some(e => e.event === 'match_finished' && e.outcome === 'completed'));
+  assert.equal(events.some(e => 'name' in e || 'token' in e || 'ip' in e), false);
   const stats = (await request('/api/stats', alice.cookie)).data;
   assert.equal(stats.wins, 1); assert.equal(stats.score, 5); assert.equal(stats.opponents[0].name, 'Bob'); assert.ok(stats.playSeconds > 0);
   for (const level of [1, 2, 3]) {

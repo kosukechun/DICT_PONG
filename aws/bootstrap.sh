@@ -49,7 +49,7 @@ with open('/etc/pong-backup.env', 'w') as f:
     f.write('AWS_DEFAULT_REGION=' + os.environ['AWS_DEFAULT_REGION'] + '\nPONG_BACKUP_DEST=s3://' + os.environ['PONG_ASSET_BUCKET'] + '/backups/' + os.environ['PONG_STACK'] + '/\n')
 os.chmod('/etc/pong-backup.env', 0o600)
 with open('/etc/pong-deploy.env', 'w') as f:
-    for key in ['AWS_DEFAULT_REGION', 'PONG_ASSET_BUCKET', 'PONG_ASSET_KEY']:
+    for key in ['AWS_DEFAULT_REGION', 'PONG_ASSET_BUCKET', 'PONG_ASSET_KEY', 'PONG_LOG_GROUP']:
         f.write('export ' + key + '=' + shlex.quote(os.environ[key]) + '\n')
 os.chmod('/etc/pong-deploy.env', 0o600)
 PY
@@ -116,6 +116,7 @@ install -m 644 /opt/pong/aws/pong-backup.service /etc/systemd/system/pong-backup
 install -m 644 /opt/pong/aws/pong-backup.timer /etc/systemd/system/pong-backup.timer
 systemctl daemon-reload
 nginx -t
+bash /opt/pong/aws/configure-monitoring.sh
 systemctl enable --now pong nginx
 systemctl restart nginx
 for attempt in $(seq 1 30); do

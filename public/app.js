@@ -2,11 +2,14 @@ import { FIELD } from './field.js';
 
 const $ = id => document.getElementById(id);
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-let player = null, ws = null, view = 'play', mode = 'online', level = 2, match = null, state = null, displayState = null;
+let player = null, ws = null, view = 'home', mode = 'online', level = 2, match = null, state = null, displayState = null;
 let waiting = false, blocked = false, reconnectTimer, reconnectAttempts = 0, loggingOut = false;
+let surrenderPending = false;
 let statsFilter = 'all', latestStats = null, toastTimer, soundEnabled = false, audio;
 let adminTimer, adminLoaded = false, settingsDirty = false;
 const keys = new Set();
+const lastTaps = new Map();
+let dashSequence = 0;
 let pointer = null, dragging = false, lastScore = '0,0', lastRally = 0;
 const canvas = $('court'), ctx = canvas.getContext('2d');
 const emptyState = () => ({ paddles: [{ x: 90, y: 320 }, { x: 1110, y: 320 }], ball: { x: 600, y: 320 }, score: [0, 0], countdown: 0, rally: 0 });
@@ -29,9 +32,14 @@ function command(value) {
 function updateControls() {
   const connected = ws?.readyState === WebSocket.OPEN;
   for (const button of document.querySelectorAll('.play-action')) button.disabled = !player || !connected || Boolean(match) || waiting || blocked;
-  $('onlineTab').disabled = Boolean(match) || waiting;
-  $('cpuTab').disabled = Boolean(match) || waiting;
+  for (const id of ['onlineTab', 'friendsTab', 'cpuTab']) $(id).disabled = Boolean(match) || waiting;
   $('leaveButton').hidden = !match;
+  $('returnHomeButton').hidden = Boolean(match);
+  $('gameNav').hidden = !match && view !== 'play';
+  $('gameNavLabel').textContent = match ? '対戦中' : '対戦結果';
+  $('leaveButton').disabled = !connected || surrenderPending;
+  $('confirmLeaveButton').disabled = surrenderPending;
+  $('matchOptions').hidden = Boolean(match) || waiting;
   $('waitingBox').hidden = !waiting;
   $('logoutButton').disabled = loggingOut;
   $('queueButton').textContent = match ? '対戦中です' : blocked ? 'ただいまプレイ休止中' : !player ? '名前を登録して対戦する' : '対戦相手を探す →';
@@ -47,7 +55,7 @@ function setPlayer(value) {
     $('selfName').textContent = player.name;
   }
   $('adminNav').hidden = player?.name !== 'chun';
-  if (player?.name !== 'chun' && view === 'admin') switchView('play');
+  if (player?.name !== 'chun' && view === 'admin') switchView('home');
   updateControls();
 }
 function presence(value) {
@@ -71,25 +79,23 @@ function connect() {
   socket.addEventListener('open', () => { if (ws !== socket) return; reconnectAttempts = 0; connectedUI(true); });
   socket.addEventListener('message', event => {
     let msg; try { msg = JSON.parse(event.data); } catch { return; }
-    if (msg.type === 'hello') { presence(msg); if (!match) overlay('YOUR COURT IS READY', 'さあ、対戦を選ぼう。', 'オンラインの相手と、またはCPUと。次のラリーをはじめよう。'); }
+    if (msg.type === 'hello') presence(msg);
     if (msg.type === 'presence') presence(msg);
-    if (msg.type === 'error') toast(msg.message, true);
+    if (msg.type === 'error') { surrenderPending = false; updateControls(); toast(msg.message, true); }
     if (msg.type === 'waiting') {
       waiting = msg.active;
       if (waiting) {
         $('waitingTitle').textContent = msg.kind === 'room' ? '友だちの参加を待っています' : '対戦相手を探しています';
         $('waitingText').textContent = msg.kind === 'room' ? 'このコードを友だちに伝えてください。' : '相手が見つかると自動でスタートします。';
         $('roomCodeButton').hidden = !msg.code; $('roomCodeButton').textContent = msg.code || '';
-        overlay(msg.kind === 'room' ? 'PRIVATE COURT' : 'LOOKING FOR A PLAYER', '次のラリーを、待とう。', msg.code ? `ルームコード：${msg.code}` : 'オンラインの対戦相手を探しています。');
-      } else if (!match) overlay('YOUR COURT IS READY', 'さあ、対戦を選ぼう。', '対戦モードを選ぶと、ここにコートが開きます。');
+      }
       updateControls();
     }
     if (msg.type === 'match') {
-      match = msg; waiting = false; state = msg.state; displayState = structuredClone(state); pointer = null; keys.clear(); lastScore = '0,0'; lastRally = 0;
+      match = msg; waiting = false; surrenderPending = false; state = msg.state; displayState = structuredClone(state); resetInput(); dashSequence = 0; lastScore = '0,0'; lastRally = 0;
       switchView('play'); $('selfName').textContent = msg.you; $('opponentName').textContent = msg.opponent;
       $('arenaMode').textContent = msg.mode === 'cpu' ? `CPU MATCH / LEVEL ${msg.level}` : 'ONLINE MATCH / 1 VS 1';
       $('courtOverlay').hidden = true; updateScore(); updateControls(); canvas.focus({ preventScroll: true });
-      $('arenaCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
     if (msg.type === 'state' && match) {
       state = msg.state;
@@ -98,9 +104,9 @@ function connect() {
       lastRally = state.rally; updateScore();
     }
     if (msg.type === 'result') {
-      match = null; waiting = false; keys.clear(); pointer = null; state = null; $('countdown').hidden = true;
+      match = null; waiting = false; surrenderPending = false; keys.clear(); pointer = null; state = null; $('countdown').hidden = true;
       $('selfScore').textContent = msg.score[0]; $('opponentScore').textContent = msg.score[1];
-      const reasons = { score: '次のラリーも、楽しもう。', forfeit: '途中終了により勝敗が記録されました。', disconnect: '接続の切断により勝敗が記録されました。', maintenance: '管理者の停止設定により中断しました。勝敗には含まれません。', restart: 'サーバーの終了により中断しました。勝敗には含まれません。', timeout: '15分を経過したため中断しました。勝敗には含まれません。' };
+      const reasons = { score: '次のラリーも、楽しもう。', forfeit: msg.outcome === 'loss' ? '降参しました。現在の得点で負けを記録しました。' : '相手が降参しました。現在の得点で勝ちを記録しました。', disconnect: '接続の切断により勝敗が記録されました。', maintenance: '管理者の停止設定により中断しました。勝敗には含まれません。', restart: 'サーバーの終了により中断しました。勝敗には含まれません。', timeout: '15分を経過したため中断しました。勝敗には含まれません。' };
       overlay(msg.outcome === 'win' ? 'YOU WIN — NICE RALLY!' : msg.outcome === 'loss' ? 'GOOD GAME — NEXT RALLY?' : 'MATCH INTERRUPTED', msg.outcome === 'win' ? 'この一勝を、次へ。' : msg.outcome === 'loss' ? 'もう一度、挑んでみよう。' : '対戦を中断しました。', reasons[msg.reason] || '対戦が終了しました。');
       $('arenaMode').textContent = 'MATCH COMPLETE'; updateControls(); loadStats().catch(e => toast(e.message, true));
       if ($('confirmDialog').open) $('confirmDialog').close();
@@ -109,6 +115,7 @@ function connect() {
   socket.addEventListener('close', () => {
     if (ws !== socket) return;
     ws = null; connectedUI(false); waiting = false;
+    surrenderPending = false; if ($('confirmDialog').open) $('confirmDialog').close();
     if (match) { match = null; state = null; keys.clear(); pointer = null; $('countdown').hidden = true; overlay('CONNECTION LOST', '接続が切れました。', '切断は負けとして記録されます。接続後に戦績を確認できます。'); }
     updateControls();
     if (!loggingOut && player && reconnectAttempts < 5) {
@@ -127,24 +134,26 @@ $('loginForm').addEventListener('submit', async event => {
   catch (error) { toast(error.message, true); } finally { button.disabled = false; }
 });
 async function logout() {
-  if (match) { $('confirmDialog').showModal(); return; }
+  if (match) { askToSurrender(); return; }
   loggingOut = true; updateControls(); clearTimeout(reconnectTimer);
   try {
     await api('/api/logout', {}); ws?.close(1000); ws = null; setPlayer(null); waiting = false; latestStats = null; adminLoaded = false;
-    connectedUI(false); switchView('play'); renderStats(null); overlay('YOUR COURT IS READY', 'はじめよう、ラリー。', 'プレイヤー名を登録して、対戦モードを選ぼう。');
+    connectedUI(false); switchView('home'); renderStats(null);
     $('selfName').textContent = 'あなた'; $('opponentName').textContent = '対戦相手'; $('selfScore').textContent = '0'; $('opponentScore').textContent = '0'; displayState = emptyState();
   } catch (error) { toast(error.message, true); } finally { loggingOut = false; updateControls(); }
 }
 $('logoutButton').addEventListener('click', logout);
-$('profileButton').addEventListener('click', () => { switchView('play'); (player ? $('playerProfile') : $('nameInput')).scrollIntoView({ behavior: 'smooth', block: 'center' }); if (!player) $('nameInput').focus(); });
+$('profileButton').addEventListener('click', () => { if (match) return toast('対戦後にホームで設定できます。'); switchView('home'); if (!player) $('nameInput').focus({ preventScroll: true }); });
 $('reconnectButton').addEventListener('click', () => { if (player && !ws) { reconnectAttempts = 0; connect(); } });
 function selectMode(value) {
-  mode = value; const online = value === 'online';
-  $('onlineTab').classList.toggle('selected', online); $('onlineTab').setAttribute('aria-selected', online);
-  $('cpuTab').classList.toggle('selected', !online); $('cpuTab').setAttribute('aria-selected', !online);
-  $('onlineSetup').hidden = !online; $('cpuSetup').hidden = online;
+  mode = value;
+  for (const kind of ['online', 'friends', 'cpu']) {
+    const selected = kind === value;
+    $(`${kind}Tab`).classList.toggle('selected', selected); $(`${kind}Tab`).setAttribute('aria-selected', selected);
+    $(`${kind}Setup`).hidden = !selected;
+  }
 }
-$('onlineTab').addEventListener('click', () => selectMode('online')); $('cpuTab').addEventListener('click', () => selectMode('cpu'));
+for (const kind of ['online', 'friends', 'cpu']) $(`${kind}Tab`).addEventListener('click', () => selectMode(kind));
 for (const button of document.querySelectorAll('[data-level]')) {
   button.addEventListener('click', () => {
     level = Number(button.dataset.level);
@@ -158,11 +167,16 @@ $('joinRoomForm').addEventListener('submit', event => { event.preventDefault(); 
 $('cpuButton').addEventListener('click', () => command({ type: 'cpu', level }));
 $('cancelWaitingButton').addEventListener('click', () => command({ type: 'leave' }));
 $('roomCodeButton').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('roomCodeButton').textContent); toast('ルームコードをコピーしました。'); } catch { toast('表示されたルームコードを相手に伝えてください。'); } });
-$('leaveButton').addEventListener('click', () => $('confirmDialog').showModal());
-$('confirmLeaveButton').addEventListener('click', () => { command({ type: 'leave' }); $('confirmDialog').close(); });
+function askToSurrender() { if (match && !surrenderPending) { resetInput(); $('confirmDialog').showModal(); } }
+$('leaveButton').addEventListener('click', askToSurrender);
+$('confirmLeaveButton').addEventListener('click', () => {
+  if (!match || surrenderPending) return;
+  if (command({ type: 'leave' })) { surrenderPending = true; updateControls(); $('confirmDialog').close(); }
+});
 for (const id of ['cancelLeaveButton', 'cancelLeaveIcon']) $(id).addEventListener('click', () => $('confirmDialog').close());
 $('helpButton').addEventListener('click', () => $('helpDialog').showModal());
 document.querySelectorAll('.close-dialog').forEach(button => button.addEventListener('click', () => $('helpDialog').close()));
+
 $('soundButton').addEventListener('click', () => {
   soundEnabled = !soundEnabled; $('soundSlash').hidden = soundEnabled;
   $('soundButton').setAttribute('aria-label', soundEnabled ? 'サウンドをオフにする' : 'サウンドをオンにする'); $('soundButton').setAttribute('aria-pressed', soundEnabled);
@@ -178,10 +192,15 @@ $('fullscreenButton').addEventListener('click', async () => { try { if (document
 
 function switchView(value) {
   if (match && value !== 'play') { toast('対戦が終わってから確認できます。'); return; }
+  if (value === 'play' && !match && view !== 'play') return;
   if (value === 'admin' && player?.name !== 'chun') return;
-  view = value; for (const key of ['play', 'stats', 'admin']) $(`view${key[0].toUpperCase() + key.slice(1)}`).hidden = value !== key;
+  view = value; for (const key of ['home', 'play', 'stats', 'admin']) $(`view${key[0].toUpperCase() + key.slice(1)}`).hidden = value !== key;
+  document.body.dataset.view = value;
+  if (value === 'play') { lastFrame = performance.now(); if (!animationFrame) animationFrame = requestAnimationFrame(draw); }
+  else { cancelAnimationFrame(animationFrame); animationFrame = 0; if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {}); }
   document.querySelectorAll('.nav-item[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === value));
-  $('pageLabel').textContent = { play: 'PLAY ARENA', stats: 'MY STATS', admin: 'CONTROL ROOM' }[value];
+  $('pageLabel').textContent = { home: 'HOME', play: 'PLAY ARENA', stats: 'MY STATS', admin: 'CONTROL ROOM' }[value];
+  updateControls();
   clearInterval(adminTimer);
   if (value === 'stats') loadStats().catch(e => toast(e.message, true));
   if (value === 'admin') {
@@ -189,8 +208,15 @@ function switchView(value) {
     adminTimer = setInterval(() => loadAdmin(false).catch(() => {}), 5000);
   }
 }
-document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.view)));
-$('homeLink').addEventListener('click', event => { event.preventDefault(); switchView('play'); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+document.querySelectorAll('button[data-view]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.view)));
+document.querySelectorAll('[data-admin-section]').forEach(button => button.addEventListener('click', () => {
+  for (const tab of document.querySelectorAll('[data-admin-section]')) {
+    const selected = tab === button;
+    tab.classList.toggle('selected', selected); tab.setAttribute('aria-selected', selected);
+    $(tab.getAttribute('aria-controls')).hidden = !selected;
+  }
+}));
+$('homeLink').addEventListener('click', event => { event.preventDefault(); switchView('home'); });
 function formatTime(seconds) {
   if (seconds < 60) return { value: seconds, unit: '秒' };
   if (seconds < 3600) return { value: Math.floor(seconds / 60), unit: '分' };
@@ -210,7 +236,7 @@ const empty = (title, description) => `<div class="empty-state"><div class="empt
 function dateLabel(value) { return new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
 function historyTable(rows) {
   if (!rows?.length) return empty('まだ、ラリーの足あとはありません。', player ? '対戦すると、ここに記録が増えていきます。' : '名前を登録して、最初の試合をはじめよう。');
-  const reasons = { score: '5点先取', forfeit: '途中終了', disconnect: '切断', maintenance: '管理者停止', restart: 'サーバー終了', timeout: '時間切れ' };
+  const reasons = { score: '5点先取', forfeit: '降参', disconnect: '切断', maintenance: '管理者停止', restart: 'サーバー終了', timeout: '時間切れ' };
   return `<div class="table-scroll"><table><thead><tr><th>結果</th><th>対戦相手</th><th>スコア</th><th class="hide-mobile">モード / 時間</th><th>日時</th></tr></thead><tbody>${rows.map(r => `<tr><td><span class="badge ${r.outcome}">${{ win: 'WIN', loss: 'LOSE', cancelled: '中断' }[r.outcome]}</span></td><td class="name-cell">${escapeHTML(r.opponent_name)}<div class="mode-label">${reasons[r.reason] || ''}</div></td><td class="score-cell nowrap">${r.score} : ${r.against}</td><td class="hide-mobile"><span class="mode-label">${r.mode === 'cpu' ? `CPU LV.${r.level}` : 'ONLINE'}</span><div>${Math.floor(r.duration / 60)}分${r.duration % 60}秒</div></td><td class="nowrap"><span class="mode-label">${dateLabel(r.ended_at)}</span></td></tr>`).join('')}</tbody></table></div>`;
 }
 function opponentTable(rows) {
@@ -218,13 +244,11 @@ function opponentTable(rows) {
   return `<div class="table-scroll"><table><thead><tr><th>対戦相手</th><th>勝敗</th><th>勝率</th><th>総得点</th><th class="hide-mobile">プレイ時間</th></tr></thead><tbody>${rows.map(r => `<tr><td class="name-cell">${escapeHTML(r.name)}</td><td class="nowrap">${r.wins}勝 ${r.losses}敗</td><td class="bar-cell"><div class="win-bar"><meter min="0" max="100" value="${(r.winRate * 100).toFixed(1)}" aria-label="勝率"></meter><small>${(r.winRate * 100).toFixed(1)}% / ${(r.winRate * 10).toFixed(1)}割</small></div></td><td>${r.score}点</td><td class="hide-mobile">${formatTime(r.playSeconds).value}${formatTime(r.playSeconds).unit}</td></tr>`).join('')}</tbody></table></div>`;
 }
 function renderStats(data) {
-  $('summaryStats').innerHTML = statCards(data); $('recentMatches').innerHTML = historyTable(data?.recent?.slice(0, 4));
   $('detailStats').innerHTML = statCards(data); $('detailMatches').innerHTML = historyTable(data?.recent); $('opponentStats').innerHTML = opponentTable(data?.opponents);
 }
 async function loadStats() {
   if (!player) { renderStats(null); return; }
   const all = await api('/api/stats'); latestStats = all;
-  $('summaryStats').innerHTML = statCards(all); $('recentMatches').innerHTML = historyTable(all.recent.slice(0, 4));
   const data = statsFilter === 'all' ? all : await api(`/api/stats?mode=${statsFilter}`);
   $('detailStats').innerHTML = statCards(data); $('detailMatches').innerHTML = historyTable(data.recent); $('opponentStats').innerHTML = opponentTable(data.opponents);
 }
@@ -277,7 +301,7 @@ $('adminPlayers').addEventListener('click', async event => {
     const data = await api(`/api/admin/stats?id=${encodeURIComponent(button.dataset.playerId)}`);
     $('adminDetailTitle').textContent = `${data.player.name} の戦績`;
     $('adminDetailStats').innerHTML = statCards(data); $('adminDetailOpponents').innerHTML = opponentTable(data.opponents); $('adminDetailMatches').innerHTML = historyTable(data.recent);
-    $('adminPlayerDetail').hidden = false; $('adminPlayerDetail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('adminPlayerDetail').hidden = false; $('adminPlayerDetail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } catch (error) { toast(error.message, true); }
 });
 $('closeAdminDetail').addEventListener('click', () => { $('adminPlayerDetail').hidden = true; });
@@ -287,6 +311,10 @@ function updateScore() {
   $('selfScore').textContent = state.score[0]; $('opponentScore').textContent = state.score[1];
   $('countdown').hidden = state.countdown <= 0 || !match;
   $('countdown').textContent = Math.ceil(state.countdown);
+  const stamina = Math.round(state.paddles[0].stamina ?? FIELD.staminaMax);
+  $('staminaMeter').value = stamina; $('staminaValue').textContent = `${stamina} / ${FIELD.staminaMax}`;
+  $('staminaHint').textContent = stamina < FIELD.dashCost ? '回復中…' : 'ダブルタップでダッシュ';
+  $('staminaPanel').classList.toggle('low', stamina < FIELD.dashCost);
 }
 function inputVector() {
   const dx = Number(keys.has('arrowright') || keys.has('d')) - Number(keys.has('arrowleft') || keys.has('a'));
@@ -297,24 +325,36 @@ const controlKeys = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a'
 window.addEventListener('keydown', event => {
   if (!match || ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName) || document.querySelector('dialog[open]')) return;
   const key = event.key.toLowerCase(); if (!controlKeys.includes(key)) return;
-  event.preventDefault(); pointer = null; keys.add(key);
+  event.preventDefault();
+  if (event.repeat || keys.has(key)) return;
+  pointer = null; keys.add(key);
+  const now = performance.now(), previousTap = lastTaps.get(key);
+  lastTaps.set(key, now);
+  const direction = inputVector();
+  if (previousTap !== undefined && now - previousTap <= FIELD.doubleTapMs && (direction.dx || direction.dy)) {
+    command({ type: 'input', ...direction, dash: { id: ++dashSequence, ...direction } });
+    lastTaps.delete(key);
+  } else command({ type: 'input', ...direction });
 });
-window.addEventListener('keyup', event => { keys.delete(event.key.toLowerCase()); });
-function resetInput() { keys.clear(); pointer = null; dragging = false; if (match) command({ type: 'input', dx: 0, dy: 0 }); }
+window.addEventListener('keyup', event => { if (keys.delete(event.key.toLowerCase()) && match) command({ type: 'input', ...inputVector() }); });
+function resetInput() { keys.clear(); lastTaps.clear(); pointer = null; dragging = false; if (match && ws?.readyState === WebSocket.OPEN) command({ type: 'input', dx: 0, dy: 0 }); }
 window.addEventListener('blur', resetInput); document.addEventListener('visibilitychange', () => { if (document.hidden) resetInput(); });
+for (const dialog of document.querySelectorAll('dialog')) new MutationObserver(() => { if (dialog.open) resetInput(); }).observe(dialog, { attributes: true, attributeFilter: ['open'] });
 function pointerPosition(event) {
   const rect = canvas.getBoundingClientRect();
   // Canvas object-fit preserves 1200:640 even in fullscreen.
   const scale = Math.min(rect.width / 1200, rect.height / 640), width = 1200 * scale, height = 640 * scale;
   return { x: Math.max(35, Math.min(545, (event.clientX - rect.left - (rect.width - width) / 2) / scale)), y: Math.max(64, Math.min(576, (event.clientY - rect.top - (rect.height - height) / 2) / scale)) };
 }
-canvas.addEventListener('pointerdown', event => { if (!match) return; event.preventDefault(); dragging = true; keys.clear(); pointer = pointerPosition(event); canvas.setPointerCapture(event.pointerId); canvas.focus({ preventScroll: true }); });
+canvas.addEventListener('pointerdown', event => { if (!match) return; event.preventDefault(); resetInput(); dragging = true; pointer = pointerPosition(event); canvas.setPointerCapture(event.pointerId); canvas.focus({ preventScroll: true }); });
 canvas.addEventListener('pointermove', event => { if (match && dragging) pointer = pointerPosition(event); });
 canvas.addEventListener('pointerup', () => { dragging = false; pointer = null; }); canvas.addEventListener('pointercancel', resetInput);
 setInterval(() => { if (match && ws?.readyState === WebSocket.OPEN) command({ type: 'input', ...(pointer || inputVector()) }); }, 1000 / 30);
 
-let lastFrame = performance.now();
+let lastFrame = performance.now(), animationFrame = 0;
 function draw(now) {
+  animationFrame = 0;
+  if (view !== 'play') return;
   const dt = Math.min((now - lastFrame) / 1000, 0.05); lastFrame = now;
   if (state) {
     const blend = 1 - Math.exp(-32 * dt);
@@ -323,44 +363,64 @@ function draw(now) {
   }
   const { paddles, ball } = displayState;
   ctx.clearRect(0, 0, 1200, 640);
-  ctx.fillStyle = '#142d34'; ctx.fillRect(0, 0, 1200, 640);
-  const gradient = ctx.createRadialGradient(600, 320, 20, 600, 320, 650); gradient.addColorStop(0, '#1b3941'); gradient.addColorStop(1, '#11272e'); ctx.fillStyle = gradient; ctx.fillRect(0, 0, 1200, 640);
-  ctx.strokeStyle = '#7193940a'; ctx.lineWidth = 1;
+  ctx.fillStyle = '#0b2133'; ctx.fillRect(0, 0, 1200, 640);
+  const gradient = ctx.createRadialGradient(600, 320, 20, 600, 320, 650); gradient.addColorStop(0, '#14364e'); gradient.addColorStop(1, '#081a2b'); ctx.fillStyle = gradient; ctx.fillRect(0, 0, 1200, 640);
+  ctx.strokeStyle = '#a7dfff12'; ctx.lineWidth = 1;
   for (let x = 24; x < 1200; x += 36) for (let y = 24; y < 640; y += 36) { ctx.beginPath(); ctx.moveTo(x - 2, y); ctx.lineTo(x + 2, y); ctx.moveTo(x, y - 2); ctx.lineTo(x, y + 2); ctx.stroke(); }
-  ctx.strokeStyle = '#668d8a50'; ctx.lineWidth = 2; ctx.setLineDash([9, 12]); ctx.beginPath(); ctx.moveTo(600, 0); ctx.lineTo(600, 640); ctx.stroke(); ctx.setLineDash([]);
-  ctx.beginPath(); ctx.arc(600, 320, 92, 0, Math.PI * 2); ctx.strokeStyle = '#64858145'; ctx.stroke();
-  ctx.beginPath(); ctx.arc(600, 320, 5, 0, Math.PI * 2); ctx.fillStyle = '#71948a70'; ctx.fill();
-  ctx.strokeStyle = '#6d9c9b40'; ctx.lineWidth = 2;
+  ctx.strokeStyle = '#8ecfed66'; ctx.lineWidth = 2; ctx.setLineDash([9, 12]); ctx.beginPath(); ctx.moveTo(600, 0); ctx.lineTo(600, 640); ctx.stroke(); ctx.setLineDash([]);
+  ctx.beginPath(); ctx.arc(600, 320, 92, 0, Math.PI * 2); ctx.strokeStyle = '#8dcde34d'; ctx.stroke();
+  ctx.beginPath(); ctx.arc(600, 320, 5, 0, Math.PI * 2); ctx.fillStyle = '#b5e9ff80'; ctx.fill();
+  ctx.strokeStyle = '#8acbe866'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(24, FIELD.goalTop); ctx.lineTo(24, 24); ctx.lineTo(1176, 24); ctx.lineTo(1176, FIELD.goalTop);
   ctx.moveTo(24, FIELD.goalBottom); ctx.lineTo(24, 616); ctx.lineTo(1176, 616); ctx.lineTo(1176, FIELD.goalBottom); ctx.stroke();
   ctx.beginPath(); ctx.arc(24, 320, 145, -Math.PI / 2, Math.PI / 2); ctx.stroke(); ctx.beginPath(); ctx.arc(1176, 320, 145, Math.PI / 2, Math.PI * 1.5); ctx.stroke();
   const goalHeight = FIELD.goalBottom - FIELD.goalTop;
-  ctx.fillStyle = '#668b8e';
+  ctx.fillStyle = '#8bbacf';
   for (const x of [0, FIELD.width - 4]) {
     ctx.fillRect(x, 0, 4, FIELD.goalTop);
     ctx.fillRect(x, FIELD.goalBottom, 4, FIELD.height - FIELD.goalBottom);
   }
-  ctx.fillStyle = '#cadb9d'; ctx.fillRect(0, FIELD.goalTop, 4, goalHeight);
-  ctx.fillStyle = '#ff8055'; ctx.fillRect(FIELD.width - 4, FIELD.goalTop, 4, goalHeight);
-  ctx.fillStyle = '#f1f1de';
+  // Bold frames and a net make each opening clear even on a small court.
+  for (const side of [0, 1]) {
+    const x = side ? FIELD.width - 60 : 0, color = side ? '#ffb29f' : '#80dfff';
+    ctx.save(); ctx.fillStyle = side ? '#572f35' : '#174760';
+    ctx.fillRect(x, FIELD.goalTop, 60, goalHeight);
+    ctx.strokeStyle = side ? '#ffb29f55' : '#80dfff55'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let gx = x + 12; gx < x + 60; gx += 12) { ctx.moveTo(gx, FIELD.goalTop); ctx.lineTo(gx, FIELD.goalBottom); }
+    for (let gy = FIELD.goalTop + 12; gy < FIELD.goalBottom; gy += 12) { ctx.moveTo(x, gy); ctx.lineTo(x + 60, gy); }
+    ctx.stroke();
+    ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 14;
+    ctx.fillRect(side ? FIELD.width - 12 : 0, FIELD.goalTop, 12, goalHeight);
+    ctx.fillRect(x, FIELD.goalTop - 3, 60, 6); ctx.fillRect(x, FIELD.goalBottom - 3, 60, 6);
+    ctx.shadowBlur = 0; ctx.translate(x + 34, (FIELD.goalTop + FIELD.goalBottom) / 2); ctx.rotate(-Math.PI / 2);
+    ctx.font = 'bold 22px Segoe UI, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#f4fbff'; ctx.fillText('GOAL', 0, 0);
+    ctx.restore();
+  }
+  ctx.fillStyle = '#f2fbff';
   for (const x of [0, FIELD.width]) for (const y of [FIELD.goalTop, FIELD.goalBottom]) {
-    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.fill();
   }
   paddles.forEach((p, i) => {
-    const color = i ? '#ff8055' : '#cadb9d'; ctx.shadowColor = color; ctx.shadowBlur = match ? 23 : 12; ctx.fillStyle = color;
+    const actual = state?.paddles[i];
+    if (actual?.dashRemaining > 0) {
+      ctx.save(); ctx.globalAlpha = 0.28; ctx.fillStyle = i ? '#ff9b87' : '#7ddaff';
+      for (let n = 1; n <= 3; n++) { ctx.globalAlpha = 0.3 / n; ctx.fillRect(p.x - 9 - actual.dashX * n * 19, p.y - 54 - actual.dashY * n * 19, 18, 108); }
+      ctx.restore();
+    }
+    const color = i ? '#ff9b87' : '#7ddaff'; ctx.shadowColor = color; ctx.shadowBlur = match ? 23 : 12; ctx.fillStyle = color;
     ctx.beginPath(); ctx.roundRect(p.x - 9, p.y - 54, 18, 108, 7); ctx.fill(); ctx.shadowBlur = 0;
-    ctx.fillStyle = i ? '#ffb28f' : '#f1f4c9'; ctx.fillRect(p.x - 3, p.y - 33, 2, 66);
+    ctx.fillStyle = i ? '#ffd1c6' : '#daf5ff'; ctx.fillRect(p.x - 3, p.y - 33, 2, 66);
   });
   if (match && state?.countdown <= 0) {
     const vx = state.ball.vx || 0, vy = state.ball.vy || 0;
-    const trail = ctx.createLinearGradient(ball.x - vx * 0.06, ball.y - vy * 0.06, ball.x, ball.y); trail.addColorStop(0, '#f1eee200'); trail.addColorStop(1, '#f1eee27a');
+    const trail = ctx.createLinearGradient(ball.x - vx * 0.06, ball.y - vy * 0.06, ball.x, ball.y); trail.addColorStop(0, '#e8f9ff00'); trail.addColorStop(1, '#e8f9ff7a');
     ctx.strokeStyle = trail; ctx.lineWidth = 14; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(ball.x - vx * 0.06, ball.y - vy * 0.06); ctx.lineTo(ball.x, ball.y); ctx.stroke();
   }
-  ctx.shadowColor = '#f0f5d2'; ctx.shadowBlur = 22; ctx.fillStyle = '#f1f1de'; ctx.beginPath(); ctx.arc(ball.x, ball.y, 12, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
-  ctx.font = '9px Segoe UI, sans-serif'; ctx.letterSpacing = '3px'; ctx.fillStyle = '#8aa29a55'; ctx.textAlign = 'center'; ctx.fillText('D I C T _ P O N G   /   A I R   H O C K E Y', 600, 608);
-  requestAnimationFrame(draw);
+  ctx.shadowColor = '#b3ebff'; ctx.shadowBlur = 22; ctx.fillStyle = '#f2fbff'; ctx.beginPath(); ctx.arc(ball.x, ball.y, 12, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+  animationFrame = requestAnimationFrame(draw);
 }
-renderStats(null); updateControls(); requestAnimationFrame(draw);
+renderStats(null); updateControls();
 async function initialize() {
   try { const me = await api('/api/me'); presence(me); setPlayer(me.player); if (player) { connect(); await loadStats(); } else connectedUI(false); }
   catch (error) { $('connectionLabel').textContent = 'サーバー未接続'; toast(error.message, true); }
