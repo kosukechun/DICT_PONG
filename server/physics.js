@@ -1,3 +1,4 @@
+export { movePaddle } from '../public/movement.js';
 import { FIELD } from '../public/field.js';
 export { FIELD };
 export const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
@@ -9,56 +10,18 @@ export function makeState() {
   };
 }
 
-export function movePaddle(p, input, side, dt, speed = FIELD.paddleSpeed) {
-  if (!(dt > 0)) return;
-  p.stamina ??= FIELD.staminaMax;
-  p.dashRemaining ??= 0; p.dashCooldown ??= 0; p.regenDelay ??= 0;
-  p.dashCooldown = Math.max(0, p.dashCooldown - dt);
-  const dash = input?.dash;
-  const dashLength = Math.hypot(dash?.dx || 0, dash?.dy || 0);
-  if (dashLength > 0 && Number.isFinite(dashLength) && !p.dashRemaining && !p.dashCooldown && p.stamina >= FIELD.dashCost) {
-    p.dashX = dash.dx / dashLength; p.dashY = dash.dy / dashLength;
-    p.dashRemaining = FIELD.dashDuration; p.dashCooldown = FIELD.dashCooldown;
-    p.stamina -= FIELD.dashCost; p.regenDelay = FIELD.staminaRegenDelay;
-  }
-  const regenTime = Math.max(0, dt - p.regenDelay);
-  p.regenDelay = Math.max(0, p.regenDelay - dt);
-  p.stamina = Math.min(FIELD.staminaMax, p.stamina + FIELD.staminaRegen * regenTime);
-  let dx = clamp(Number(input?.dx) || 0, -1, 1), dy = clamp(Number(input?.dy) || 0, -1, 1);
-  if (Number.isFinite(input?.x) && Number.isFinite(input?.y)) {
-    dx = input.x - p.x; dy = input.y - p.y;
-    const distance = Math.hypot(dx, dy);
-    const scale = distance ? Math.min(1, distance / (speed * dt)) / distance : 0;
-    dx *= scale; dy *= scale;
-  } else {
-    const length = Math.max(1, Math.hypot(dx, dy)); dx /= length; dy /= length;
-  }
-  const oldX = p.x, oldY = p.y;
-  const dashTime = Math.min(dt, p.dashRemaining), normalTime = dt - dashTime;
-  p.x = clamp(p.x + dx * speed * normalTime + (p.dashX || 0) * FIELD.dashSpeed * dashTime, side ? 655 : 35, side ? 1165 : 545);
-  p.y = clamp(p.y + dy * speed * normalTime + (p.dashY || 0) * FIELD.dashSpeed * dashTime, 64, 576);
-  p.dashRemaining = Math.max(0, p.dashRemaining - dt);
-  p.vx = (p.x - oldX) / dt; p.vy = (p.y - oldY) / dt;
-}
-
-// Circle / rectangle contact: faces and rounded corner contacts work in all directions.
+// A circular mallet and circular puck share the exact radii used for rendering.
 export function collidePaddle(ball, paddle) {
-  const halfW = FIELD.paddleWidth / 2, halfH = FIELD.paddleHeight / 2;
-  const nearX = clamp(ball.x, paddle.x - halfW, paddle.x + halfW);
-  const nearY = clamp(ball.y, paddle.y - halfH, paddle.y + halfH);
-  let nx = ball.x - nearX, ny = ball.y - nearY, distance = Math.hypot(nx, ny);
-  if (distance > FIELD.radius) return false;
+  const contactRadius = FIELD.paddleRadius + FIELD.radius;
+  let nx = ball.x - paddle.x, ny = ball.y - paddle.y, distance = Math.hypot(nx, ny);
+  if (distance > contactRadius) return false;
   if (distance < 0.0001) {
-    const faces = [
-      { gap: ball.x - (paddle.x - halfW), x: -1, y: 0 },
-      { gap: paddle.x + halfW - ball.x, x: 1, y: 0 },
-      { gap: ball.y - (paddle.y - halfH), x: 0, y: -1 },
-      { gap: paddle.y + halfH - ball.y, x: 0, y: 1 },
-    ].sort((a, b) => a.gap - b.gap);
-    nx = faces[0].x; ny = faces[0].y; distance = -faces[0].gap;
+    const rvx = ball.vx - (paddle.vx || 0), rvy = ball.vy - (paddle.vy || 0);
+    const speed = Math.hypot(rvx, rvy);
+    nx = speed ? -rvx / speed : 1; ny = speed ? -rvy / speed : 0;
   } else { nx /= distance; ny /= distance; }
-  ball.x += nx * (FIELD.radius - distance + 0.1);
-  ball.y += ny * (FIELD.radius - distance + 0.1);
+  ball.x += nx * (contactRadius - distance + 0.1);
+  ball.y += ny * (contactRadius - distance + 0.1);
   const pvx = paddle.vx || 0, pvy = paddle.vy || 0;
   const approach = (ball.vx - pvx) * nx + (ball.vy - pvy) * ny;
   if (approach >= 0) return false;
@@ -98,6 +61,11 @@ function collideSideWalls(ball) {
   }
 }
 
+function collideHorizontalWalls(ball) {
+  if (ball.y < FIELD.radius) { ball.y = 2 * FIELD.radius - ball.y; ball.vy = Math.abs(ball.vy); }
+  if (ball.y > FIELD.height - FIELD.radius) { ball.y = 2 * (FIELD.height - FIELD.radius) - ball.y; ball.vy = -Math.abs(ball.vy); }
+}
+
 export function stepBall(state, dt, random = Math.random) {
   if (state.countdown > 0) {
     state.countdown = Math.max(0, state.countdown - dt);
@@ -108,20 +76,28 @@ export function stepBall(state, dt, random = Math.random) {
     }
     return null;
   }
-  // Small fixed substeps prevent fast balls tunneling through a narrow paddle.
-  const steps = Math.max(1, Math.ceil(dt / (1 / 240))), sub = dt / steps;
+  // Sweep mallets through their movement too: a fast mouse stroke must hit the
+  // puck even when neither endpoint overlaps it. Bounds keep this work finite.
+  const travel = Math.max(...state.paddles.map(p => Math.hypot(p.x - (p.previousX ?? p.x), p.y - (p.previousY ?? p.y))));
+  const steps = Math.max(1, Math.ceil(dt / (1 / 240)), Math.ceil(travel / (FIELD.paddleRadius / 2))), sub = dt / steps;
   for (let i = 0; i < steps; i++) {
     const b = state.ball;
     b.x += b.vx * sub; b.y += b.vy * sub;
-    if (b.y < FIELD.radius) { b.y = 2 * FIELD.radius - b.y; b.vy = Math.abs(b.vy); }
-    if (b.y > FIELD.height - FIELD.radius) { b.y = 2 * (FIELD.height - FIELD.radius) - b.y; b.vy = -Math.abs(b.vy); }
-    for (const paddle of state.paddles) if (collidePaddle(b, paddle)) state.rally++;
+    collideHorizontalWalls(b);
+    for (const p of state.paddles) {
+      const fraction = (i + 1) / steps;
+      const paddle = { ...p, x: (p.previousX ?? p.x) + (p.x - (p.previousX ?? p.x)) * fraction, y: (p.previousY ?? p.y) + (p.y - (p.previousY ?? p.y)) * fraction };
+      if (collidePaddle(b, paddle)) state.rally++;
+    }
+    // Mallet separation can push a puck into a rail after integration already
+    // handled it. Resolve the rail again before publishing or checking a goal.
+    collideHorizontalWalls(b);
     collideSideWalls(b);
     if (b.x < -FIELD.radius || b.x > FIELD.width + FIELD.radius) {
       const scorer = b.x < 0 ? 1 : 0;
       state.score[scorer]++;
       state.ball = { x: 600, y: 320, vx: 0, vy: 0 };
-      state.paddles.forEach((p, side) => Object.assign(p, { x: side ? 1110 : 90, y: 320, vx: 0, vy: 0, dashRemaining: 0 }));
+      state.paddles.forEach((p, side) => Object.assign(p, { x: side ? 1110 : 90, previousX: side ? 1110 : 90, y: 320, previousY: 320, vx: 0, vy: 0, dashRemaining: 0 }));
       state.countdown = 2; state.serveDirection = scorer ? -1 : 1; state.rally = 0;
       return scorer;
     }
@@ -149,7 +125,7 @@ export function viewState(state, side) {
   if (!side) return { ...state, paddles: state.paddles.map(p => ({ ...p })), ball: { ...state.ball }, score: [...state.score] };
   return {
     ...state, score: [...state.score].reverse(),
-    paddles: [...state.paddles].reverse().map(p => ({ ...p, x: FIELD.width - p.x, vx: -p.vx, dashX: -(p.dashX || 0) })),
+    paddles: [...state.paddles].reverse().map(p => ({ ...p, x: FIELD.width - p.x, previousX: FIELD.width - (p.previousX ?? p.x), vx: -p.vx, dashX: -(p.dashX || 0) })),
     ball: { ...state.ball, x: FIELD.width - state.ball.x, vx: -state.ball.vx },
   };
 }

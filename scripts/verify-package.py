@@ -5,8 +5,10 @@ from collections import Counter
 import json
 import re
 import zipfile
+import hashlib
 
 ROOT = Path(__file__).resolve().parent.parent
+DISTRIBUTION = ROOT / '配布用'
 class Page(HTMLParser):
     def __init__(self):
         super().__init__(); self.ids = []; self.links = []
@@ -28,7 +30,7 @@ for path in ['public/index.html', 'docs/AWS_SETUP.html']:
 with zipfile.ZipFile(ROOT / 'release/pong-app.zip') as z:
     assert z.testzip() is None
     names = z.namelist()
-    required = ['package.json', 'package-lock.json', 'public/index.html', 'public/app.js', 'public/field.js', 'public/style.css', 'public/HTdR38qbIAA86Ob.webp', 'server/index.js', 'server/store.js', 'server/physics.js', 'aws/bootstrap.sh', 'aws/update.sh', 'aws/configure-monitoring.sh', 'aws/pong-stack.yaml', 'aws/node-version.txt', 'node_modules/ws/package.json', 'node_modules/ws/LICENSE', 'docs/AWS_SETUP.html', 'docs/architecture.svg', 'README.md', 'start-local.cmd', 'scripts/start-local.ps1', 'scripts/package.ps1', 'tests/ui.test.js']
+    required = ['package.json', 'package-lock.json', 'public/index.html', 'public/app.js', 'public/field.js', 'public/movement.js', 'public/style.css', 'public/HTdR38qbIAA86Ob.webp', 'server/index.js', 'server/store.js', 'server/physics.js', 'aws/bootstrap.sh', 'aws/update.sh', 'aws/configure-monitoring.sh', 'aws/pong-stack.yaml', 'aws/node-version.txt', 'node_modules/ws/package.json', 'node_modules/ws/LICENSE', 'docs/AWS_SETUP.html', 'docs/architecture.svg', 'README.md', 'start-local.cmd', 'scripts/start-local.ps1', 'scripts/package.ps1', 'tests/ui.test.js']
     assert set(required).issubset(names), set(required) - set(names)
     assert all('\\' not in n and not n.startswith('/') and '..' not in Path(n).parts for n in names)
     assert all(not n.startswith(('.tools/', '.runtime/', 'data/', 'release/', '.git/')) for n in names)
@@ -43,4 +45,8 @@ with zipfile.ZipFile(ROOT / 'release/pong-app.zip') as z:
 with zipfile.ZipFile(ROOT / 'release/PONG-AWS-kit.zip') as z:
     assert set(z.namelist()) == {'pong-app.zip', 'pong-stack.yaml', 'AWS_SETUP.html', 'AWS_SETUP.md', 'ARCHITECTURE.svg'}
     assert z.testzip() is None
+assert (DISTRIBUTION / 'PONG-AWS-kit.zip').read_bytes() == (ROOT / 'release/PONG-AWS-kit.zip').read_bytes()
+assert (DISTRIBUTION / 'AWS_SETUP.html').read_bytes() == (ROOT / 'docs/AWS_SETUP.html').read_bytes()
+assert (DISTRIBUTION / 'はじめに.txt').read_bytes() == (ROOT / 'docs/DISTRIBUTION_README.txt').read_bytes()
+assert (DISTRIBUTION / 'SHA256SUMS.txt').read_text().split()[0] == hashlib.sha256((DISTRIBUTION / 'PONG-AWS-kit.zip').read_bytes()).hexdigest()
 print('Verified HTML IDs / TOC, all client IDs, ZIP layout, required files, LF scripts, dependency version, and absence of runtime data/secrets.')

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { JSDOM } from 'jsdom';
 import { FIELD } from '../public/field.js';
+import { movePaddle } from '../public/movement.js';
 
 test('home opens the match on start, renders visible goals and supports dash, surrender, stats and admin', async t => {
   const dom = new JSDOM(readFileSync('public/index.html', 'utf8'), { url: 'http://localhost:3000', runScripts: 'outside-only', pretendToBeVisual: true });
@@ -15,7 +16,7 @@ test('home opens the match on start, renders visible goals and supports dash, su
   w.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
   w.HTMLDialogElement.prototype.close = function () { this.open = false; };
   const paint = []; let frame, drawingRequests = 0;
-  w.HTMLCanvasElement.prototype.getContext = () => new Proxy({}, { get: (_, key) => key.startsWith('create') ? () => ({ addColorStop() {} }) : (...args) => { if (['fillText', 'fillRect'].includes(key)) paint.push({ operation: key, args }); } });
+  w.HTMLCanvasElement.prototype.getContext = () => new Proxy({}, { get: (_, key) => key.startsWith('create') ? () => ({ addColorStop() {} }) : (...args) => { if (['fillText', 'fillRect', 'roundRect', 'arc'].includes(key)) paint.push({ operation: key, args }); } });
   w.requestAnimationFrame = callback => { frame = callback; return ++drawingRequests; };
   w.cancelAnimationFrame = () => { frame = null; };
   class Socket extends w.EventTarget {
@@ -38,13 +39,19 @@ test('home opens the match on start, renders visible goals and supports dash, su
     return { ok: true, json: async () => data };
   };
   w.FIELD = FIELD;
-  w.eval(readFileSync('public/app.js', 'utf8').replace("import { FIELD } from './field.js';", ''));
+  w.movePaddle = movePaddle;
+  w.eval(readFileSync('public/app.js', 'utf8').replace(/^import .*;$/gm, ''));
   await delay(10);
   assert.equal(doc.getElementById('adminNav').hidden, true); assert.equal(doc.getElementById('queueButton').disabled, true);
   assert.equal(doc.body.dataset.view, 'home'); assert.equal(doc.getElementById('viewPlay').hidden, true);
   assert.equal(doc.getElementById('viewHome').querySelector('canvas'), null);
   assert.equal(doc.getElementById('setupCard').closest('section').id, 'viewHome');
   assert.equal(drawingRequests, 0);
+  const mouseControl = doc.querySelector('[name="controlMode"][value="mouse"]');
+  const keyboardControl = doc.querySelector('[name="controlMode"][value="keyboard"]');
+  assert.equal(mouseControl.checked, true);
+  keyboardControl.click();
+  assert.equal(w.localStorage.getItem('pong-control-mode'), 'keyboard');
   doc.getElementById('nameInput').value = 'chun'; doc.getElementById('loginForm').dispatchEvent(new w.Event('submit', { cancelable: true })); await delay(10);
   assert.equal(doc.getElementById('adminNav').hidden, false); assert.equal(doc.getElementById('playerName').textContent, 'chun'); assert.equal(doc.getElementById('queueButton').disabled, false);
   assert.ok(doc.getElementById('detailStats').textContent.includes('50.0')); assert.ok(doc.getElementById('detailStats').textContent.includes('5.0割'));
@@ -64,6 +71,7 @@ test('home opens the match on start, renders visible goals and supports dash, su
   assert.equal(doc.getElementById('courtOverlay').hidden, true); assert.equal(doc.getElementById('queueButton').disabled, true);
   assert.equal(doc.body.dataset.view, 'play'); assert.equal(doc.getElementById('viewHome').hidden, true);
   assert.equal(doc.getElementById('viewPlay').hidden, false); assert.equal(doc.getElementById('returnHomeButton').hidden, true);
+  assert.equal(keyboardControl.disabled, true);
   frame(w.performance.now());
   assert.equal(paint.filter(p => p.operation === 'fillText' && p.args[0] === 'GOAL').length, 2);
   for (const side of [0, 1]) assert.ok(paint.some(p => p.operation === 'fillRect' && p.args[1] === FIELD.goalTop && p.args[2] >= 10 && p.args[2] <= 16 && p.args[3] === FIELD.goalBottom - FIELD.goalTop && (side ? p.args[0] >= FIELD.width - 16 : p.args[0] === 0)));
@@ -104,8 +112,58 @@ test('home opens the match on start, renders visible goals and supports dash, su
   doc.getElementById('homeLink').click(); assert.equal(doc.body.dataset.view, 'home');
   doc.getElementById('gameNav').click(); assert.equal(doc.body.dataset.view, 'home');
   socket.receive({ type: 'waiting', active: true, kind: 'queue' }); assert.equal(doc.body.dataset.view, 'home');
+  assert.equal(mouseControl.disabled, true);
+  socket.receive({ type: 'waiting', active: false });
+  mouseControl.click();
+  assert.equal(mouseControl.checked, true); assert.equal(w.localStorage.getItem('pong-control-mode'), 'mouse');
   socket.receive({ type: 'match', id: 'm2', mode: 'cpu', level: 2, you: 'chun', opponent: 'CPU Lv.2', state });
   assert.equal(doc.body.dataset.view, 'play'); assert.equal(doc.getElementById('waitingBox').hidden, true);
+  const court = doc.getElementById('court');
+  court.setPointerCapture = () => {};
+  court.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1200, height: 640 });
+  const point = (type, x, y, pointerType = 'mouse') => {
+    const event = new w.MouseEvent(type, { clientX: x, clientY: y, bubbles: true });
+    Object.defineProperty(event, 'pointerType', { value: pointerType }); court.dispatchEvent(event);
+  };
+  keyTime = 2000; frame(keyTime);
+  const beforeMouse = commands.length;
+  key('keydown', 'w'); assert.equal(commands.length, beforeMouse);
+  point('pointermove', 500, 320);
+  assert.equal(commands.at(-1).x, 500); // Sent immediately, without a 30 Hz timer.
+  keyTime += 16; paint.length = 0; frame(keyTime);
+  const mallets = () => paint.filter(p => p.operation === 'arc' && p.args[2] === FIELD.paddleRadius);
+  assert.equal(mallets().length, 2);
+  assert.deepEqual(mallets()[0].args.slice(0, 3), [500, 320, FIELD.paddleRadius]); // Exact cursor position before any server response.
+  assert.equal(paint.some(p => p.operation === 'roundRect'), false);
+  // A delayed server snapshot must not pull an actively predicted paddle backward.
+  socket.receive({ type: 'state', state });
+  keyTime += 16; paint.length = 0; frame(keyTime);
+  assert.equal(mallets()[0].args[0], 500);
+  point('pointermove', 9000, -100);
+  keyTime += 20; frame(keyTime);
+  assert.equal(commands.at(-1).x, 600 - FIELD.centerInset); assert.equal(commands.at(-1).y, FIELD.paddleInset);
+  w.dispatchEvent(new w.Event('blur'));
+  assert.equal(commands.at(-1).dx, 0); assert.equal(commands.at(-1).dy, 0);
+  keyTime += 16; paint.length = 0; frame(keyTime);
+  assert.equal(mallets()[0].args[0], 90);
+  // A letterboxed fullscreen canvas must map the visible court, not its margins.
+  court.getBoundingClientRect = () => ({ left: 20, top: 10, width: 1200, height: 1000 });
+  keyTime += 100;
+  point('pointerdown', 220, 390, 'touch');
+  keyTime += 16; paint.length = 0; frame(keyTime);
+  assert.deepEqual(mallets()[0].args.slice(0, 2), [200, 200]);
+  point('pointermove', 320, 490, 'touch');
+  keyTime += 20; paint.length = 0; frame(keyTime);
+  assert.deepEqual(mallets()[0].args.slice(0, 2), [300, 300]);
+  point('pointercancel', 320, 490, 'touch');
+  assert.equal(commands.at(-1).dx, 0); assert.equal(commands.at(-1).dy, 0);
+  court.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1200, height: 640 });
+  // High-rate mouse devices are coalesced below the server's 100 msg/s limit.
+  const beforeBurst = commands.length;
+  for (let i = 0; i < 1000; i++) { keyTime += .5; point('pointermove', 100 + i / 4, 240); if (i % 32 === 0) frame(keyTime); }
+  keyTime += 20; frame(keyTime);
+  assert.ok(commands.length - beforeBurst <= 33);
+  assert.equal(commands.at(-1).x, 349.75);
   doc.getElementById('leaveButton').click(); doc.getElementById('confirmLeaveButton').click();
   const afterSurrender = commands.filter(c => c.type === 'leave').length;
   doc.getElementById('confirmLeaveButton').click(); assert.equal(commands.filter(c => c.type === 'leave').length, afterSurrender);
@@ -127,4 +185,20 @@ test('home opens the match on start, renders visible goals and supports dash, su
   doc.querySelector('[data-player-id]').click(); await delay(10); assert.equal(doc.getElementById('adminPlayerDetail').hidden, false);
   socket.receive({ type: 'presence', online: 1, blocked: true, message: '全体停止' });
   assert.equal(doc.getElementById('maintenance').hidden, false); assert.equal(doc.getElementById('maintenanceMessage').textContent, '全体停止');
+});
+
+test('home restores valid control preferences and falls back to mouse for absent or invalid values', async () => {
+  for (const stored of [null, 'keyboard', 'invalid']) {
+    const dom = new JSDOM(readFileSync('public/index.html', 'utf8'), { url: 'http://localhost:3000', runScripts: 'outside-only' });
+    const w = dom.window;
+    try {
+      w.HTMLCanvasElement.prototype.getContext = () => ({});
+      w.fetch = async () => ({ ok: true, json: async () => ({ player: null, online: 0, blocked: false }) });
+      w.FIELD = FIELD; w.movePaddle = movePaddle;
+      if (stored !== null) w.localStorage.setItem('pong-control-mode', stored);
+      w.eval(readFileSync('public/app.js', 'utf8').replace(/^import .*;$/gm, ''));
+      await delay(1);
+      assert.equal(w.document.querySelector('[name="controlMode"]:checked').value, stored === 'keyboard' ? 'keyboard' : 'mouse');
+    } finally { w.close(); }
+  }
 });

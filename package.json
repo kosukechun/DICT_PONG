@@ -1,6 +1,6 @@
 {
   "name": "dict-pong",
-  "version": "1.3.0",
+  "version": "1.5.1",
   "private": true,
   "type": "module",
   "description": "AWS-ready multiplayer air hockey with server-authoritative physics",

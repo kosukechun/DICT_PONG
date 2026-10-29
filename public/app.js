@@ -1,4 +1,5 @@
 import { FIELD } from './field.js';
+import { movePaddle } from './movement.js';
 
 const $ = id => document.getElementById(id);
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -11,6 +12,8 @@ const keys = new Set();
 const lastTaps = new Map();
 let dashSequence = 0;
 let pointer = null, dragging = false, lastScore = '0,0', lastRally = 0;
+let controlMode = 'mouse', predictedPaddle = null, inputDirty = false, lastInputSent = -Infinity;
+try { if (localStorage.getItem('pong-control-mode') === 'keyboard') controlMode = 'keyboard'; } catch { /* Storage can be disabled. */ }
 const canvas = $('court'), ctx = canvas.getContext('2d');
 const emptyState = () => ({ paddles: [{ x: 90, y: 320 }, { x: 1110, y: 320 }], ball: { x: 600, y: 320 }, score: [0, 0], countdown: 0, rally: 0 });
 displayState = emptyState();
@@ -33,6 +36,7 @@ function updateControls() {
   const connected = ws?.readyState === WebSocket.OPEN;
   for (const button of document.querySelectorAll('.play-action')) button.disabled = !player || !connected || Boolean(match) || waiting || blocked;
   for (const id of ['onlineTab', 'friendsTab', 'cpuTab']) $(id).disabled = Boolean(match) || waiting;
+  for (const input of document.querySelectorAll('[name="controlMode"]')) input.disabled = Boolean(match) || waiting;
   $('leaveButton').hidden = !match;
   $('returnHomeButton').hidden = Boolean(match);
   $('gameNav').hidden = !match && view !== 'play';
@@ -99,7 +103,7 @@ function connect() {
     }
     if (msg.type === 'state' && match) {
       state = msg.state;
-      if (String(state.score) !== lastScore) { beep(600, 0.15); lastScore = String(state.score); displayState = structuredClone(state); }
+      if (String(state.score) !== lastScore) { beep(600, 0.15); lastScore = String(state.score); displayState = structuredClone(state); predictedPaddle = pointer ? { ...state.paddles[0] } : null; }
       else if (state.rally > lastRally) beep(280 + Math.min(state.rally, 10) * 20, 0.035);
       lastRally = state.rally; updateScore();
     }
@@ -313,7 +317,7 @@ function updateScore() {
   $('countdown').textContent = Math.ceil(state.countdown);
   const stamina = Math.round(state.paddles[0].stamina ?? FIELD.staminaMax);
   $('staminaMeter').value = stamina; $('staminaValue').textContent = `${stamina} / ${FIELD.staminaMax}`;
-  $('staminaHint').textContent = stamina < FIELD.dashCost ? '回復中…' : 'ダブルタップでダッシュ';
+  $('staminaHint').textContent = controlMode === 'mouse' ? 'マウスに追従' : stamina < FIELD.dashCost ? '回復中…' : 'ダブルタップでダッシュ';
   $('staminaPanel').classList.toggle('low', stamina < FIELD.dashCost);
 }
 function inputVector() {
@@ -322,8 +326,24 @@ function inputVector() {
   return { dx, dy };
 }
 const controlKeys = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd'];
+function updateControlMode() {
+  const mouse = controlMode === 'mouse';
+  for (const input of document.querySelectorAll('[name="controlMode"]')) input.checked = input.value === controlMode;
+  const hint = mouse ? 'マウス位置へマレットが直接追従します。タッチはドラッグ。' : 'WASD / 矢印キーで移動。同じ方向を2回押すとダッシュ。';
+  $('controlDescription').textContent = hint;
+  $('homeControlHint').textContent = hint;
+  $('arenaControlHint').textContent = hint;
+  canvas.setAttribute('aria-label', `エアホッケーのコート。${hint} 常に自分が左側です。`);
+}
+for (const input of document.querySelectorAll('[name="controlMode"]')) input.addEventListener('change', () => {
+  if (match || waiting || !input.checked) return;
+  resetInput(); controlMode = input.value;
+  try { localStorage.setItem('pong-control-mode', controlMode); } catch { /* Keep the selection for this page. */ }
+  updateControlMode();
+});
+updateControlMode();
 window.addEventListener('keydown', event => {
-  if (!match || ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName) || document.querySelector('dialog[open]')) return;
+  if (!match || controlMode !== 'keyboard' || ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName) || document.querySelector('dialog[open]')) return;
   const key = event.key.toLowerCase(); if (!controlKeys.includes(key)) return;
   event.preventDefault();
   if (event.repeat || keys.has(key)) return;
@@ -337,19 +357,40 @@ window.addEventListener('keydown', event => {
   } else command({ type: 'input', ...direction });
 });
 window.addEventListener('keyup', event => { if (keys.delete(event.key.toLowerCase()) && match) command({ type: 'input', ...inputVector() }); });
-function resetInput() { keys.clear(); lastTaps.clear(); pointer = null; dragging = false; if (match && ws?.readyState === WebSocket.OPEN) command({ type: 'input', dx: 0, dy: 0 }); }
+function resetInput() { keys.clear(); lastTaps.clear(); pointer = null; dragging = false; predictedPaddle = null; inputDirty = false; if (match && ws?.readyState === WebSocket.OPEN) command({ type: 'input', dx: 0, dy: 0 }); }
 window.addEventListener('blur', resetInput); document.addEventListener('visibilitychange', () => { if (document.hidden) resetInput(); });
 for (const dialog of document.querySelectorAll('dialog')) new MutationObserver(() => { if (dialog.open) resetInput(); }).observe(dialog, { attributes: true, attributeFilter: ['open'] });
 function pointerPosition(event) {
   const rect = canvas.getBoundingClientRect();
   // Canvas object-fit preserves 1200:640 even in fullscreen.
   const scale = Math.min(rect.width / 1200, rect.height / 640), width = 1200 * scale, height = 640 * scale;
-  return { x: Math.max(35, Math.min(545, (event.clientX - rect.left - (rect.width - width) / 2) / scale)), y: Math.max(64, Math.min(576, (event.clientY - rect.top - (rect.height - height) / 2) / scale)) };
+  return { x: Math.max(FIELD.paddleInset, Math.min(FIELD.width / 2 - FIELD.centerInset, (event.clientX - rect.left - (rect.width - width) / 2) / scale)), y: Math.max(FIELD.paddleInset, Math.min(FIELD.height - FIELD.paddleInset, (event.clientY - rect.top - (rect.height - height) / 2) / scale)) };
 }
-canvas.addEventListener('pointerdown', event => { if (!match) return; event.preventDefault(); resetInput(); dragging = true; pointer = pointerPosition(event); canvas.setPointerCapture(event.pointerId); canvas.focus({ preventScroll: true }); });
-canvas.addEventListener('pointermove', event => { if (match && dragging) pointer = pointerPosition(event); });
-canvas.addEventListener('pointerup', () => { dragging = false; pointer = null; }); canvas.addEventListener('pointercancel', resetInput);
-setInterval(() => { if (match && ws?.readyState === WebSocket.OPEN) command({ type: 'input', ...(pointer || inputVector()) }); }, 1000 / 30);
+function sendInput(now = performance.now()) {
+  if (!match || ws?.readyState !== WebSocket.OPEN) return;
+  command({ type: 'input', ...(controlMode === 'mouse' ? pointer || { dx: 0, dy: 0 } : inputVector()) });
+  lastInputSent = now; inputDirty = false;
+}
+function trackPointer(event, immediate = false) {
+  const firstInput = pointer === null;
+  if (!predictedPaddle) predictedPaddle = { ...state.paddles[0] };
+  pointer = pointerPosition(event); inputDirty = true;
+  // First input goes immediately; subsequent events are coalesced to at most 60 Hz.
+  if (firstInput || immediate || performance.now() - lastInputSent >= 1000 / 60) sendInput();
+}
+const canPoint = () => match && view === 'play' && controlMode === 'mouse' && !document.querySelector('dialog[open]');
+canvas.addEventListener('pointerdown', event => {
+  if (!canPoint()) return;
+  event.preventDefault(); dragging = true; trackPointer(event, true);
+  canvas.setPointerCapture(event.pointerId); canvas.focus({ preventScroll: true });
+});
+canvas.addEventListener('pointermove', event => { if (canPoint() && (event.pointerType === 'mouse' || dragging)) trackPointer(event); });
+canvas.addEventListener('pointerleave', () => { if (!dragging && controlMode === 'mouse') resetInput(); });
+canvas.addEventListener('pointerup', event => { dragging = false; if (event.pointerType !== 'mouse') resetInput(); });
+canvas.addEventListener('pointercancel', resetInput);
+canvas.addEventListener('lostpointercapture', () => { if (dragging) resetInput(); });
+// Refresh held input before the server's 600 ms stale-input timeout.
+setInterval(() => { if (!document.hidden) sendInput(); }, 100);
 
 let lastFrame = performance.now(), animationFrame = 0;
 function draw(now) {
@@ -358,9 +399,16 @@ function draw(now) {
   const dt = Math.min((now - lastFrame) / 1000, 0.05); lastFrame = now;
   if (state) {
     const blend = 1 - Math.exp(-32 * dt);
-    displayState.paddles.forEach((p, i) => { p.x += (state.paddles[i].x - p.x) * blend; p.y += (state.paddles[i].y - p.y) * blend; });
+    if (match && controlMode === 'mouse' && pointer && predictedPaddle) {
+      // Direct cursor tracking, with the same circular-mallet bounds as the server.
+      movePaddle(predictedPaddle, { ...pointer, direct: true }, 0, dt);
+      Object.assign(displayState.paddles[0], { x: predictedPaddle.x, y: predictedPaddle.y });
+    } else Object.assign(displayState.paddles[0], { x: state.paddles[0].x, y: state.paddles[0].y });
+    const other = displayState.paddles[1];
+    other.x += (state.paddles[1].x - other.x) * blend; other.y += (state.paddles[1].y - other.y) * blend;
     displayState.ball.x += (state.ball.x - displayState.ball.x) * blend; displayState.ball.y += (state.ball.y - displayState.ball.y) * blend;
   }
+  if (inputDirty && now - lastInputSent >= 1000 / 60) sendInput(now);
   const { paddles, ball } = displayState;
   ctx.clearRect(0, 0, 1200, 640);
   ctx.fillStyle = '#0b2133'; ctx.fillRect(0, 0, 1200, 640);
@@ -405,12 +453,20 @@ function draw(now) {
     const actual = state?.paddles[i];
     if (actual?.dashRemaining > 0) {
       ctx.save(); ctx.globalAlpha = 0.28; ctx.fillStyle = i ? '#ff9b87' : '#7ddaff';
-      for (let n = 1; n <= 3; n++) { ctx.globalAlpha = 0.3 / n; ctx.fillRect(p.x - 9 - actual.dashX * n * 19, p.y - 54 - actual.dashY * n * 19, 18, 108); }
+      for (let n = 1; n <= 3; n++) { ctx.globalAlpha = 0.3 / n; ctx.beginPath(); ctx.arc(p.x - actual.dashX * n * 19, p.y - actual.dashY * n * 19, FIELD.paddleRadius, 0, Math.PI * 2); ctx.fill(); }
       ctx.restore();
     }
-    const color = i ? '#ff9b87' : '#7ddaff'; ctx.shadowColor = color; ctx.shadowBlur = match ? 23 : 12; ctx.fillStyle = color;
-    ctx.beginPath(); ctx.roundRect(p.x - 9, p.y - 54, 18, 108, 7); ctx.fill(); ctx.shadowBlur = 0;
-    ctx.fillStyle = i ? '#ffd1c6' : '#daf5ff'; ctx.fillRect(p.x - 3, p.y - 33, 2, 66);
+    const color = i ? '#ff9b87' : '#7ddaff', radius = FIELD.paddleRadius;
+    ctx.save(); ctx.shadowColor = '#000a'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 5;
+    ctx.fillStyle = i ? '#843f36' : '#17617d';
+    ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0; ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
+    const cap = ctx.createRadialGradient(p.x - 8, p.y - 10, 2, p.x, p.y, radius - 5);
+    cap.addColorStop(0, i ? '#ffe2d8' : '#e0faff'); cap.addColorStop(1, color);
+    ctx.fillStyle = cap; ctx.beginPath(); ctx.arc(p.x, p.y, radius - 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = i ? '#c96350' : '#238bb2'; ctx.strokeStyle = i ? '#ffd1c6' : '#bdefff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(p.x, p.y - 2, radius * .43, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.restore();
   });
   if (match && state?.countdown <= 0) {
     const vx = state.ball.vx || 0, vy = state.ball.vy || 0;

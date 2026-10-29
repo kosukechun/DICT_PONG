@@ -9,6 +9,8 @@ Metadata:
         Parameters: [InstanceType, DataVolumeSize, CpuCredits]
       - Label: {default: '3. Cost control and logs'}
         Parameters: [EnableNightSchedule, LogRetentionDays]
+      - Label: {default: '4. Optional audit history'}
+        Parameters: [EnableAuditTrail]
 Parameters:
   ArtifactBucket:
     Type: String
@@ -47,9 +49,80 @@ Parameters:
   LatestAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  EnableAuditTrail:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: 'Create a single-region management-events CloudTrail and 30-day S3 storage. Check existing trails first to avoid paid duplicate copies.'
 Conditions:
   NightScheduleEnabled: !Equals [!Ref EnableNightSchedule, 'true']
+  AuditTrailEnabled: !Equals [!Ref EnableAuditTrail, 'true']
 Resources:
+  AuditBucket:
+    Type: AWS::S3::Bucket
+    Condition: AuditTrailEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireAuditAfter30Days
+            Status: Enabled
+            ExpirationInDays: 30
+  AuditBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: AuditTrailEnabled
+    Properties:
+      Bucket: !Ref AuditBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudtrail.amazonaws.com}
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt AuditBucket.Arn
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${AWS::StackName}-audit'
+          - Effect: Allow
+            Principal: {Service: cloudtrail.amazonaws.com}
+            Action: s3:PutObject
+            Resource: !Sub '${AuditBucket.Arn}/AWSLogs/${AWS::AccountId}/*'
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${AWS::StackName}-audit'
+          - Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource: [!GetAtt AuditBucket.Arn, !Sub '${AuditBucket.Arn}/*']
+            Condition:
+              Bool: {aws:SecureTransport: 'false'}
+  AuditTrail:
+    Type: AWS::CloudTrail::Trail
+    Condition: AuditTrailEnabled
+    DependsOn: AuditBucketPolicy
+    Properties:
+      TrailName: !Sub '${AWS::StackName}-audit'
+      IsLogging: true
+      IsMultiRegionTrail: false
+      IncludeGlobalServiceEvents: true
+      EnableLogFileValidation: true
+      S3BucketName: !Ref AuditBucket
+      EventSelectors:
+        - IncludeManagementEvents: true
+          ReadWriteType: All
+          ExcludeManagementEventSources: [kms.amazonaws.com, rdsdata.amazonaws.com]
   ApplicationLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -319,6 +392,10 @@ Resources:
           {"type":"log","x":12,"y":14,"width":12,"height":6,"properties":{"title":"Application / nginx errors","region":"${AWS::Region}","view":"table","query":"SOURCE '${ApplicationLogGroup}' | filter event = 'request_error' or @logStream like /nginx/ | fields @timestamp, @logStream, @message | sort @timestamp desc | limit 50"}}
         ]}
 Outputs:
+  AuditLogBucket:
+    Condition: AuditTrailEnabled
+    Description: 'CloudTrail management events in this region plus global service events; retained bucket, 30-day expiry.'
+    Value: !Ref AuditBucket
   GameURL:
     Description: 'Open this HTTPS URL and share it with players.'
     Value: !Sub 'https://${Distribution.DomainName}'

@@ -103,12 +103,20 @@ function cleanSettings(input) {
   return { paused: input.paused, message, windows, daily };
 }
 async function readJSON(req) {
-  let body = '';
+  const chunks = []; let size = 0;
   for await (const chunk of req) {
-    body += chunk;
-    if (Buffer.byteLength(body) > 16384) { const e = new Error('送信データが大きすぎます。'); e.status = 413; throw e; }
+    size += chunk.length;
+    if (size > 16384) { const e = new Error('送信データが大きすぎます。'); e.status = 413; throw e; }
+    chunks.push(chunk);
   }
-  try { return JSON.parse(body || '{}'); } catch { const e = new Error('JSON形式が正しくありません。'); e.status = 400; throw e; }
+  // Decode only after joining bytes: network chunks can split a Japanese character.
+  const body = Buffer.concat(chunks).toString('utf8');
+  let value;
+  try { value = JSON.parse(body || '{}'); } catch { const e = new Error('JSON形式が正しくありません。'); e.status = 400; throw e; }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    const e = new Error('JSONはオブジェクト形式で送信してください。'); e.status = 400; throw e;
+  }
+  return value;
 }
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.webp': 'image/webp' };
 const server = http.createServer(async (req, res) => {
@@ -169,8 +177,8 @@ const server = http.createServer(async (req, res) => {
       return json(404, { error: 'このAPIは存在しません。' });
     }
     if (!['GET', 'HEAD'].includes(req.method)) return json(405, { error: 'この操作には対応していません。' });
-    const files = { '/': 'index.html', '/index.html': 'index.html', '/style.css': 'style.css', '/app.js': 'app.js', '/field.js': 'field.js', '/favicon.svg': 'favicon.svg', '/HTdR38qbIAA86Ob.webp': 'HTdR38qbIAA86Ob.webp' };
-    const file = files[url.pathname];
+    const files = { '/': 'index.html', '/index.html': 'index.html', '/style.css': 'style.css', '/app.js': 'app.js', '/field.js': 'field.js', '/movement.js': 'movement.js', '/favicon.svg': 'favicon.svg', '/HTdR38qbIAA86Ob.webp': 'HTdR38qbIAA86Ob.webp' };
+    const file = Object.hasOwn(files, url.pathname) ? files[url.pathname] : null;
     if (!file) return json(404, { error: 'ページが見つかりません。' });
     const data = await readFile(resolve(root, 'public', file));
     res.writeHead(200, { 'Content-Type': mime[extname(file)] }); res.end(req.method === 'HEAD' ? undefined : data);
@@ -208,7 +216,7 @@ server.on('upgrade', (req, socket, head) => {
           client.dashSequence = dash.id;
           client.pendingDash = { dx: dash.dx * (client.side ? -1 : 1), dy: dash.dy };
         }
-        if (Number.isFinite(msg.x) && Number.isFinite(msg.y)) client.input = { x: client.side ? FIELD.width - clamp(msg.x, 35, 545) : clamp(msg.x, 35, 545), y: clamp(msg.y, 64, 576) };
+        if (Number.isFinite(msg.x) && Number.isFinite(msg.y)) client.input = { x: client.side ? FIELD.width - clamp(msg.x, FIELD.paddleInset, FIELD.width / 2 - FIELD.centerInset) : clamp(msg.x, FIELD.paddleInset, FIELD.width / 2 - FIELD.centerInset), y: clamp(msg.y, FIELD.paddleInset, FIELD.height - FIELD.paddleInset), direct: true };
         else client.input = { dx: clamp(Number(msg.dx) || 0, -1, 1) * (client.side ? -1 : 1), dy: clamp(Number(msg.dy) || 0, -1, 1) };
         client.inputAt = Date.now(); return;
       }
@@ -272,8 +280,9 @@ const timer = setInterval(() => {
     accumulator -= 1 / 60;
   }
   for (const match of matches.values()) {
-    if (now - match.lastSnapshot < 1000 / 30) continue;
-    match.lastSnapshot = now;
+    if (now - match.lastSnapshot < 1000 / 60) continue;
+    // Preserve the 60 Hz schedule across the 120 Hz timer's fractional jitter.
+    match.lastSnapshot += Math.floor((now - match.lastSnapshot) / (1000 / 60)) * (1000 / 60);
     match.players.forEach((p, side) => { if (!p.cpu) send(p, { type: 'state', state: viewState(match.state, side), at: Date.now() }); });
   }
 }, 1000 / 120);

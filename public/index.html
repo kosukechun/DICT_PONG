@@ -20,7 +20,7 @@
       <button class="nav-item" id="helpButton"><span class="nav-icon">?</span><span>遊び方</span></button>
       <button class="nav-item" data-view="admin" id="adminNav" hidden><span class="nav-icon">⚙</span><span>管理</span></button>
     </nav>
-    <div class="rail-bottom"><span class="tiny-puck"></span><span>ONE MORE<br>GOOD RALLY.</span><small>VERSION 1.3</small></div>
+    <div class="rail-bottom"><span class="tiny-puck"></span><span>ONE MORE<br>GOOD RALLY.</span><small>VERSION 1.5</small></div>
   </aside>
 
   <div class="shell">
@@ -34,12 +34,17 @@
       <section id="viewHome" class="view">
         <div class="page-heading home-heading"><div><div class="eyebrow">DICT_PONG / LOBBY</div><h1>対戦を、はじめよう。</h1></div><div class="live-pill"><span class="live-dot"></span><strong id="onlineCount">0</strong> 人がオンライン</div></div>
         <div class="home-layout">
-          <div class="home-intro"><img class="home-mascot" src="/HTdR38qbIAA86Ob.webp" alt="青い髪の応援キャラクター" width="112" height="108"><span class="eyebrow">ONE MORE GOOD RALLY.</span><h2>一打で、<br><span>流れを変えよう。</span></h2><p>名前を登録して、対戦モードを選択。<br>相手が決まったら、コートへ。</p><div class="home-controls"><div><i class="keycap">W</i><i class="keycap">A</i><i class="keycap">S</i><i class="keycap">D</i><strong>自由に移動</strong></div><p>同じ方向を2回押すとダッシュ。<br>スタミナを使って、一気に切り込もう。</p></div></div>
+          <div class="home-intro"><img class="home-mascot" src="/HTdR38qbIAA86Ob.webp" alt="青い髪の応援キャラクター" width="112" height="108"><span class="eyebrow">ONE MORE GOOD RALLY.</span><h2>一打で、<br><span>流れを変えよう。</span></h2><p>名前を登録して、対戦モードを選択。<br>相手が決まったら、コートへ。</p><div class="home-controls"><strong>自分に合う操作で、コートへ。</strong><p id="homeControlHint">マウス位置へマレットが直接追従します。タッチはドラッグ。</p></div></div>
           <aside class="setup-card" id="setupCard" aria-label="プレイヤー設定">
             <div class="setup-heading"><div><span class="eyebrow">PLAYER SETUP</span><h2>プレイヤー設定</h2></div></div>
             <form id="loginForm"><label for="nameInput">あなたのプレイヤー名</label><p class="form-note">パスワード不要。名前だけで参加できます。</p><div class="name-input-wrap"><span>☺</span><input id="nameInput" name="name" maxlength="16" placeholder="名前を入力" autocomplete="nickname" required></div><button class="button primary full" type="submit">名前を登録 <span>✓</span></button></form>
             <div id="playerProfile" hidden><div class="registered-profile"><span class="avatar large" id="playerAvatar">P</span><div><small>PLAYER</small><strong id="playerName"></strong></div><span class="registered-check">✓</span></div><button class="text-button small" id="logoutButton">名前を変更 / ログアウト</button></div>
             <div class="setup-divider"></div>
+            <fieldset class="control-picker" aria-describedby="controlDescription">
+              <legend>操作方法を選ぶ</legend>
+              <div class="control-choices"><label><input type="radio" name="controlMode" value="mouse" checked><span>マウス<small>カーソルに追従</small></span></label><label><input type="radio" name="controlMode" value="keyboard"><span>WASD<small>矢印キーにも対応</small></span></label></div>
+              <p class="form-note" id="controlDescription">マウス位置へマレットが直接追従します。タッチはドラッグ。</p>
+            </fieldset>
             <div class="match-options" id="matchOptions">
             <div class="section-kicker">対戦モードを選ぶ</div>
             <div class="mode-tabs" role="tablist" aria-label="対戦モード"><button id="onlineTab" role="tab" aria-selected="true" aria-controls="onlineSetup" class="selected">オンライン</button><button id="friendsTab" role="tab" aria-selected="false" aria-controls="friendsSetup">友だち</button><button id="cpuTab" role="tab" aria-selected="false" aria-controls="cpuSetup">CPU対戦</button></div>
@@ -56,8 +61,8 @@
         <div class="arena-card" id="arenaCard">
           <div class="arena-top"><div class="arena-tag"><i></i><span id="arenaMode">PONG ARENA</span></div><div class="arena-tools"><button class="button secondary return-home-button" id="returnHomeButton" data-view="home" hidden>ホームに戻る</button><button class="surrender-button" id="leaveButton" hidden>⚑ 降参する</button><span class="target-label">5点先取</span><button class="icon-button" id="soundButton" aria-label="サウンドをオンにする" title="サウンド">♪<span id="soundSlash">╱</span></button><button class="icon-button" id="fullscreenButton" aria-label="コートを全画面表示" title="全画面">⛶</button></div></div>
           <div class="scoreboard"><div class="player-label"><span class="player-color self"></span><div><small>YOU / LEFT SIDE</small><strong id="selfName">あなた</strong></div></div><div class="score"><span id="selfScore">0</span><span class="score-separator">:</span><span id="opponentScore">0</span></div><div class="player-label opponent"><div><small>OPPONENT</small><strong id="opponentName">対戦相手</strong></div><span class="player-color other"></span></div></div>
-          <div class="court-wrap" id="courtWrap"><canvas id="court" width="1200" height="640" tabindex="0" aria-label="エアホッケーのコート。WASDで移動。同じ方向を2回押してダッシュ。斜め移動・斜めダッシュも可能。"></canvas><div class="court-overlay" id="courtOverlay"><div class="overlay-kicker" id="overlayKicker">YOUR COURT IS READY</div><h2 id="overlayTitle">はじめよう、ラリー。</h2><p id="overlayDescription">プレイヤー名を登録して、対戦モードを選ぼう。</p><div class="overlay-decoration"><span></span> ● <span></span></div></div><div class="countdown" id="countdown" hidden>3</div></div>
-          <div class="stamina-panel" id="staminaPanel"><label for="staminaMeter">スタミナ <span id="staminaValue">100 / 100</span></label><meter id="staminaMeter" min="0" max="100" low="35" optimum="100" value="100">100 / 100</meter><span id="staminaHint">ダブルタップでダッシュ</span></div><div class="arena-bottom"><span><i class="keycap">W</i><i class="keycap">A</i><i class="keycap">S</i><i class="keycap">D</i><span>移動 / 2回押しでダッシュ</span></span><span class="touch-hint">ドラッグでも操作できます</span></div>
+          <div class="court-wrap" id="courtWrap"><canvas id="court" width="1200" height="640" tabindex="0" aria-label="エアホッケーのコート。マウスを動かして移動。ホームでWASD操作も選べます。"></canvas><div class="court-overlay" id="courtOverlay"><div class="overlay-kicker" id="overlayKicker">YOUR COURT IS READY</div><h2 id="overlayTitle">はじめよう、ラリー。</h2><p id="overlayDescription">プレイヤー名を登録して、対戦モードを選ぼう。</p><div class="overlay-decoration"><span></span> ● <span></span></div></div><div class="countdown" id="countdown" hidden>3</div></div>
+          <div class="stamina-panel" id="staminaPanel"><label for="staminaMeter">スタミナ <span id="staminaValue">100 / 100</span></label><meter id="staminaMeter" min="0" max="100" low="35" optimum="100" value="100">100 / 100</meter><span id="staminaHint">マウスに追従</span></div><div class="arena-bottom"><span id="arenaControlHint">マウス位置へマレットが直接追従します。タッチはドラッグ。</span></div>
         </div>
       </section>
 
@@ -90,7 +95,7 @@
     </main>
   </div>
 
-  <dialog id="helpDialog"><div class="dialog-head"><span class="eyebrow">HOW TO PLAY</span><button class="icon-button close-dialog" aria-label="閉じる">×</button></div><h2>一打ずつ、楽しもう。</h2><div class="help-steps"><div><span>01</span><div><h3>名前を登録</h3><p>好きな名前で参加。同じ名前の戦績は引き継がれます。大文字と小文字は別の名前です。</p></div></div><div><span>02</span><div><h3>対戦を選ぶ</h3><p>自動マッチング、友だちとのルーム対戦、3段階のCPU戦。どれも5点先取です。</p></div></div><div><span>03</span><div><h3>バーを上下左右へ</h3><p>WASDで移動。同じ方向を素早く2回押すとダッシュし、スタミナを35消費します。Wを押しながらDを2回押すと右上へダッシュ。斜めでも速さ・消費量は同じです。スタミナは自動回復。矢印キーやドラッグでの移動にも対応しています。常に自分が左側です。</p></div></div><div><span>04</span><div><h3>ゴールを狙う</h3><p>バーの上下左右どの面でも打ち返せます。上下の壁は反射、左右中央のゴールを通り抜けると得点。それ以外の側面は壁で反射。動きながら当てると軌道が変わります。</p></div></div></div><p class="dialog-note">対戦の終了・切断は負けになります。管理者による停止、サーバー終了、15分の時間切れは勝敗なしの中断です。接続は1つの名前につき1画面までです。</p><button class="button primary full close-dialog">さあ、コートへ →</button></dialog>
+  <dialog id="helpDialog"><div class="dialog-head"><span class="eyebrow">HOW TO PLAY</span><button class="icon-button close-dialog" aria-label="閉じる">×</button></div><h2>一打ずつ、楽しもう。</h2><div class="help-steps"><div><span>01</span><div><h3>名前を登録</h3><p>好きな名前で参加。同じ名前の戦績は引き継がれます。大文字と小文字は別の名前です。</p></div></div><div><span>02</span><div><h3>対戦を選ぶ</h3><p>自動マッチング、友だちとのルーム対戦、3段階のCPU戦。どれも5点先取です。</p></div></div><div><span>03</span><div><h3>マレットを上下左右へ</h3><p>ホームでマウス（初期設定）かWASDを選びます。マウスはコート上で動かすだけで追従し、タッチはドラッグします。WASDでは同じ方向を素早く2回押すとダッシュし、スタミナを35消費します。Wを押しながらDを2回押すと右上へダッシュ。斜めでも速さ・消費量は同じです。スタミナは自動回復。WASD選択時は矢印キーにも対応しています。操作方法は試合前のホームで変更できます。常に自分が左側です。</p></div></div><div><span>04</span><div><h3>ゴールを狙う</h3><p>丸いマレットの外周で打ち返せます。上下の壁は反射、左右中央のゴールを通り抜けると得点。それ以外の側面は壁で反射。動きながら当てると軌道が変わります。</p></div></div></div><p class="dialog-note">対戦の終了・切断は負けになります。管理者による停止、サーバー終了、15分の時間切れは勝敗なしの中断です。接続は1つの名前につき1画面までです。</p><button class="button primary full close-dialog">さあ、コートへ →</button></dialog>
   <dialog id="confirmDialog" aria-labelledby="surrenderTitle" aria-describedby="surrenderDescription"><div class="dialog-head"><span class="eyebrow">SURRENDER?</span><button class="icon-button" id="cancelLeaveIcon" aria-label="閉じる">×</button></div><h2 id="surrenderTitle">この試合を降参しますか？</h2><p id="surrenderDescription">あなたの負けとして記録し、現在の得点で試合を終了します。</p><div class="dialog-actions"><button class="button secondary" id="cancelLeaveButton" autofocus>プレイを続ける</button><button class="button danger-button" id="confirmLeaveButton">降参して終了</button></div></dialog>
   <div class="toast" id="toast" role="status" hidden></div>
 </body>

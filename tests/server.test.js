@@ -71,6 +71,13 @@ test('real HTTP / WebSocket game, five points, mirrored input, CPU, admin stops 
   assert.equal(a.last.paddles[0].stamina, 65); assert.equal(b.last.paddles[0].stamina, 65);
   a.send({ type: 'input', dx: 1, dy: 0 }); b.send({ type: 'input', dx: 1, dy: 0 }); await delay(150);
   assert.ok(a.last.paddles[0].x > 100); assert.ok(b.last.paddles[0].x > 100);
+  // Pointer positions are applied directly for both mirrored participants.
+  for (const client of [a, b]) client.send({ type: 'input', x: 500, y: 120 });
+  await delay(80);
+  for (const client of [a, b]) {
+    assert.equal(client.last.paddles[0].x, 500);
+    assert.equal(client.last.paddles[0].y, 120);
+  }
   const follow = setInterval(() => {
     if (a.last) a.send({ type: 'input', x: 90, y: a.last.ball.y });
     if (b.last) b.send({ type: 'input', x: 35, y: b.last.ball.y > 320 ? 64 : 576 });

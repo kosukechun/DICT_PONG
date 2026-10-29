@@ -397,8 +397,8 @@ dialog p { color: var(--muted); font-size: 16px; }
 }
 
 /* Home contains setup only. The court is a separate, full-width match view. */
-#viewHome { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
-.home-layout { flex: 1; min-height: 0; width: min(1160px, 100%); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 480px); align-items: center; gap: clamp(24px, 5vw, 80px); }
+#viewHome { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: #31566f transparent; }
+.home-layout { flex: 1 0 auto; min-height: 0; width: min(1160px, 100%); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 480px); align-items: center; gap: clamp(24px, 5vw, 80px); }
 .home-intro { min-width: 0; padding: 16px 0; }
 .home-mascot { display: block; width: 112px; height: 108px; object-fit: contain; border-radius: 24px; background: #b7d1e0; filter: brightness(.85); margin-bottom: 20px; }
 .home-intro h2 { font-size: clamp(32px, 3vw, 48px); line-height: 1.4; margin: 12px 0 16px; }
@@ -467,4 +467,18 @@ dialog p { color: var(--muted); font-size: 16px; }
   #viewHome #loginForm .button { width: 100%; }
   #viewHome .difficulty button span { display: none; }
   #viewHome .mode-tabs { margin-bottom: 10px; }
+}
+
+.control-picker { border: 0; padding: 0; margin: 0 0 18px; min-width: 0; flex-shrink: 0; }
+.control-picker legend { font-weight: 700; font-size: 16px; margin-bottom: 12px; }
+.control-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.control-choices label { display: flex; align-items: center; gap: 9px; border: 1px solid var(--border); padding: 12px; border-radius: 9px; cursor: pointer; margin: 0; }
+.control-choices label:has(input:checked) { border-color: #7ddaff; background: #7ddaff14; }
+.control-choices label:has(input:focus-visible) { outline: 2px solid #7ddaff; outline-offset: 3px; }
+.control-choices label:has(input:disabled) { opacity: .55; cursor: default; }
+.control-choices input { width: 18px; height: 18px; padding: 0; margin: 0; flex-shrink: 0; accent-color: #7ddaff; }
+.control-choices span { font-size: 16px; font-weight: 700; }
+.control-choices small { display: block; font-size: 12px; font-weight: 400; margin-top: 4px; color: var(--muted); }
+@media (max-height: 640px) and (min-width: 620px) {
+  #viewHome .control-picker { grid-column: 1 / -1; grid-row: 3; margin: 0; }
 }

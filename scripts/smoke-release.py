@@ -10,6 +10,7 @@ import time
 import urllib.request
 import zipfile
 import shutil
+import io
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS = (ROOT / '.tools').resolve()
@@ -18,8 +19,9 @@ node = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else TOOLS / 'node-v24.2
 stage = Path(tempfile.mkdtemp(prefix='release-smoke-', dir=TOOLS)).resolve()
 process = None
 try:
-    with zipfile.ZipFile(ROOT / 'release/pong-app.zip') as z:
-        z.extractall(stage)
+    with zipfile.ZipFile(ROOT / '配布用/PONG-AWS-kit.zip') as kit:
+        with zipfile.ZipFile(io.BytesIO(kit.read('pong-app.zip'))) as z:
+            z.extractall(stage)
     assert not (stage / 'node_modules/jsdom').exists()
     with socket.socket() as s:
         s.bind(('127.0.0.1', 0)); port = s.getsockname()[1]
@@ -36,7 +38,7 @@ try:
             time.sleep(.05)
     else:
         raise RuntimeError('Packaged server failed readiness')
-    for path, content in [('/', b'DICT_PONG'), ('/app.js', b'WebSocket'), ('/field.js', b'goalTop'), ('/style.css', b'--blue'), ('/favicon.svg', b'<svg')]:
+    for path, content in [('/', b'DICT_PONG'), ('/app.js', b'WebSocket'), ('/field.js', b'goalTop'), ('/movement.js', b'export function movePaddle'), ('/style.css', b'--blue'), ('/favicon.svg', b'<svg')]:
         with urllib.request.urlopen(base + path) as r:
             assert r.status == 200 and content in r.read(), path
     with urllib.request.urlopen(base + '/HTdR38qbIAA86Ob.webp') as r:
@@ -50,6 +52,10 @@ try:
         data = json.load(r)
         assert r.status == 200 and data['settings']['paused'] is False
     print('Packaged ZIP starts with shipped runtime dependencies only; game assets, name login and name-only admin API all work.')
+    verification = subprocess.run([str(node), '--test', '--test-concurrency=1', 'tests/online.test.js', 'tests/physics-stress.test.js'], cwd=stage, capture_output=True, text=True, encoding='utf-8', timeout=60)
+    if verification.returncode:
+        raise RuntimeError(verification.stdout + verification.stderr)
+    print('Online regressions and physics stress tests also pass from the actual distributed ZIP (no development dependencies).')
 finally:
     if process is not None:
         process.terminate()

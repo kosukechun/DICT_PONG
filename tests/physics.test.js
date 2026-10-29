@@ -35,8 +35,8 @@ test('stamina, cooldown, recovery delay and all eight dash directions are enforc
   for (const side of [0, 1]) {
     const p = { ...makeState().paddles[side] };
     for (let i = 0; i < 120; i++) movePaddle(p, { dx: side ? -1 : 1, dy: -1, dash: { dx: side ? -1 : 1, dy: -1 } }, side, 1 / 60);
-    assert.ok(p.x >= (side ? 655 : 35) && p.x <= (side ? 1165 : 545));
-    assert.ok(p.y >= 64 && p.stamina >= 0);
+    assert.ok(p.x >= (side ? 600 + FIELD.centerInset : FIELD.paddleInset) && p.x <= (side ? 1200 - FIELD.paddleInset : 600 - FIELD.centerInset));
+    assert.ok(p.y >= FIELD.paddleInset && p.stamina >= 0);
   }
 });
 
@@ -59,11 +59,11 @@ test('both participants see their paddle on the left and their own score first',
   view.paddles[0].x = 1; assert.equal(state.paddles[1].x, 1110);
 });
 
-test('all four paddle faces reflect an approaching ball', () => {
+test('round mallet reflects approaching pucks on all four sides', () => {
   const paddle = { x: 200, y: 320, vx: 0, vy: 0 };
   for (const ball of [
-    { x: 181, y: 320, vx: 560, vy: 0 }, { x: 219, y: 320, vx: -560, vy: 0 },
-    { x: 200, y: 257, vx: 0, vy: 560 }, { x: 200, y: 383, vx: 0, vy: -560 },
+    { x: 157, y: 320, vx: 560, vy: 0 }, { x: 243, y: 320, vx: -560, vy: 0 },
+    { x: 200, y: 277, vx: 0, vy: 560 }, { x: 200, y: 363, vx: 0, vy: -560 },
   ]) {
     const before = { ...ball }; assert.equal(collidePaddle(ball, paddle), true);
     if (before.vx) assert.ok(before.vx * ball.vx < 0);
@@ -72,16 +72,18 @@ test('all four paddle faces reflect an approaching ball', () => {
   }
 });
 
-test('corner contact and penetrating contact produce finite positions and velocities', () => {
+test('circular diagonal contact and coincident centers produce finite separation', () => {
   const paddle = { x: 200, y: 320, vx: 0, vy: 0 };
-  const corner = { x: 183, y: 258, vx: 400, vy: 400 };
+  const corner = { x: 170, y: 290, vx: 400, vy: 400 };
   assert.equal(collidePaddle(corner, paddle), true); assert.ok(corner.vx < 0 && corner.vy < 0);
   const embedded = { x: 200, y: 320, vx: 560, vy: 10 }; collidePaddle(embedded, paddle);
-  assert.ok(Object.values(embedded).every(Number.isFinite)); assert.ok(Math.abs(embedded.x - 200) >= 21);
+  assert.ok(Object.values(embedded).every(Number.isFinite)); assert.ok(Math.hypot(embedded.x - 200, embedded.y - 320) >= FIELD.paddleRadius + FIELD.radius);
+  const outsideCircle = { x: 200 + (FIELD.paddleRadius + FIELD.radius) * .9, y: 320 + (FIELD.paddleRadius + FIELD.radius) * .9, vx: -400, vy: -400 };
+  assert.equal(collidePaddle(outsideCircle, paddle), false);
 });
 
 test('separating balls are not reflected a second time', () => {
-  const b = { x: 180, y: 320, vx: -560, vy: 0 };
+  const b = { x: 157, y: 320, vx: -560, vy: 0 };
   assert.equal(collidePaddle(b, { x: 200, y: 320 }), false); assert.equal(b.vx, -560);
 });
 
@@ -90,9 +92,35 @@ test('movement is speed limited, diagonal-normalized and restricted to own half'
   movePaddle(a, { dx: 1, dy: 1 }, 0, 1 / 60); movePaddle(b, { dx: 1, dy: 0 }, 0, 1 / 60);
   assert.ok(Math.abs(Math.hypot(a.x - 100, a.y - 320) - (b.x - 100)) < 0.001);
   for (let i = 0; i < 500; i++) movePaddle(a, { x: 9000, y: -9000 }, 0, 1 / 60);
-  assert.ok(a.x <= 545 && a.y >= 64);
+  assert.ok(a.x <= 600 - FIELD.centerInset && a.y >= FIELD.paddleInset);
   const right = { x: 1110, y: 320 }; movePaddle(right, { x: 0, y: 0 }, 1, 1);
-  assert.ok(right.x >= 655 && right.y >= 64);
+  assert.ok(right.x >= 600 + FIELD.centerInset && right.y >= FIELD.paddleInset);
+});
+
+test('mouse reaches its target in one simulation tick while CPU and keyboard retain speed limits', () => {
+  const mouse = { x: 90, y: 320 }, cpu = { x: 90, y: 320 }, keyboard = { x: 90, y: 320 };
+  movePaddle(mouse, { x: 550, y: 100, direct: true }, 0, 1 / 60);
+  assert.equal(mouse.x, 550); assert.equal(mouse.y, 100);
+  movePaddle(cpu, { x: 550, y: 100 }, 0, 1 / 60, 270);
+  assert.ok(Math.hypot(cpu.x - 90, cpu.y - 320) <= 270 / 60 + .001);
+  movePaddle(keyboard, { dx: 1 }, 0, 1 / 60);
+  assert.ok(Math.abs(keyboard.x - 90 - FIELD.paddleSpeed / 60) < .001);
+  movePaddle(mouse, { x: 9000, y: -9000, direct: true }, 0, 1 / 60);
+  assert.equal(mouse.x, 600 - FIELD.centerInset); assert.equal(mouse.y, FIELD.paddleInset);
+  assert.ok(mouse.x + FIELD.paddleRadius < 600 && mouse.y - FIELD.paddleRadius > 0);
+});
+
+test('fast mouse strokes hit pucks along their full path on either side', () => {
+  for (const side of [0, 1]) {
+    const state = makeState(); state.countdown = 0;
+    const p = state.paddles[side]; p.x = side ? 1100 : 100;
+    state.ball = { x: side ? 900 : 300, y: 320, vx: 0, vy: 0 };
+    movePaddle(p, { x: side ? 700 : 500, y: 320, direct: true }, side, 1 / 60);
+    stepBall(state, 1 / 60);
+    assert.ok(side ? state.ball.vx < 0 : state.ball.vx > 0);
+    assert.ok(Math.hypot(state.ball.vx, state.ball.vy) <= 1000.01);
+    assert.ok(state.rally > 0);
+  }
 });
 
 test('top and bottom walls bounce while a ball through the central opening scores', () => {
