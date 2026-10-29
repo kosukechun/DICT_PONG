@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1060" viewBox="0 0 1280 1060" role="img" aria-labelledby="title desc">
+  <title id="title">DICT_PONG AWS アーキテクチャ</title>
+  <desc id="desc">ブラウザからCloudFront、EC2のゲームサーバーへ接続。暗号化EBSに保存し、S3にバックアップ。EventBridge Schedulerが日本時間0時に停止、8時に開始。CloudWatchでログと利用状況を確認。Systems ManagerでZIP更新。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" fill="#54747c"/></marker>
+    <style>text{font-family:'Segoe UI','Yu Gothic',Meiryo,sans-serif;fill:#18363f} .title{font-size:30px;font-weight:700}.service{font-size:21px;font-weight:700}.body{font-size:15px}.small{font-size:13px;fill:#49656c}.tag{font-size:12px;font-weight:700;letter-spacing:1px}.node{fill:white;stroke:#b7ccd0;stroke-width:1.5}.flow{fill:none;stroke:#54747c;stroke-width:2;marker-end:url(#arrow)}.admin{stroke-dasharray:7 5}.caption{font-size:13px;fill:#375c66}</style>
+  </defs>
+  <rect width="1280" height="1060" rx="20" fill="#f1f6f4"/>
+  <text x="40" y="52" class="title">DICT_PONG / AWS アーキテクチャ</text>
+  <text x="40" y="81" class="body">小規模なリアルタイム対戦を1台で運用。必要な時間だけ起動し、コンソールで利用状況を確認。</text>
+  <rect x="40" y="118" width="275" height="124" rx="14" class="node"/>
+  <text x="60" y="146" class="tag">運用者 / AWS CONSOLE</text>
+  <text x="60" y="177" class="service">Systems Manager</text>
+  <text x="60" y="203" class="body">Run Command：アプリ更新</text>
+  <text x="60" y="225" class="small">Session Manager：SSH鍵不要</text>
+  <rect x="535" y="118" width="325" height="124" rx="14" fill="#fff2e7" stroke="#ddaa7d"/>
+  <text x="555" y="150" class="service">EventBridge Scheduler</text>
+  <text x="555" y="178" class="body">00:00 停止 → 08:00 起動</text>
+  <text x="555" y="202" class="small">Asia/Tokyo / 起動後の準備に数分</text>
+  <text x="555" y="224" class="small">対象EC2のみ操作するIAMロール</text>
+  <path d="M698 242V310" class="flow"/>
+  <text x="711" y="277" class="caption">Start / Stop EC2</text>
+  <rect x="510" y="293" width="375" height="263" rx="17" fill="#e6f1ed" stroke="#92b5a6"/>
+  <text x="532" y="320" class="tag">専用 VPC / 公開サブネット</text>
+  <rect x="40" y="355" width="180" height="145" rx="14" class="node"/>
+  <text x="60" y="392" class="service">ブラウザ</text>
+  <text x="60" y="422" class="body">Canvas / WASD</text>
+  <text x="60" y="447" class="body">オンライン / CPU戦</text>
+  <text x="60" y="477" class="small">自分は常に左側</text>
+  <rect x="300" y="355" width="180" height="145" rx="14" fill="#f1ecff" stroke="#b4a3d5"/>
+  <text x="319" y="392" class="service">CloudFront</text>
+  <text x="319" y="422" class="body">HTTPS / WSS 終端</text>
+  <text x="319" y="447" class="body">キャッシュ無効</text>
+  <text x="319" y="477" class="small">固定のGameURL</text>
+  <rect x="535" y="343" width="325" height="184" rx="14" class="node"/>
+  <text x="555" y="375" class="service">EC2 / Amazon Linux 2023</text>
+  <text x="555" y="405" class="body">固定IPv4 → nginx → Node.js 24</text>
+  <text x="555" y="431" class="body">60Hz物理演算 / WebSocket</text>
+  <text x="555" y="457" class="body">systemd：起動・復帰・正常終了</text>
+  <text x="555" y="486" class="small">T3 Standard：追加CPU料金を抑制</text>
+  <text x="555" y="508" class="small">ゲーム・CPU戦ともにサーバーで処理</text>
+  <rect x="980" y="355" width="260" height="145" rx="14" class="node"/>
+  <text x="1000" y="391" class="service">暗号化 EBS / gp3</text>
+  <text x="1000" y="422" class="body">SQLite：戦績・名前・設定</text>
+  <text x="1000" y="447" class="body">データ用8GiB + OS用12GiB</text>
+  <text x="1000" y="477" class="small">データ用はスタック削除時も保持</text>
+  <path d="M220 422H300" class="flow"/>
+  <text x="232" y="408" class="caption">HTTPS</text>
+  <path d="M480 442H535" class="flow"/>
+  <text x="485" y="428" class="caption">HTTP</text>
+  <path d="M860 422H980" class="flow"/>
+  <text x="881" y="405" class="caption">永続保存</text>
+  <path d="M315 195H415V320H540" class="flow admin"/>
+  <text x="330" y="180" class="caption">SSM / IAM</text>
+  <rect x="300" y="623" width="315" height="132" rx="14" class="node"/>
+  <text x="320" y="657" class="service">S3 / 非公開バケット</text>
+  <text x="320" y="687" class="body">pong-app.zip：手動アップロード</text>
+  <text x="320" y="714" class="body">SQLiteバックアップ：約1時間ごと</text>
+  <text x="320" y="738" class="small">バックアップ保管期限は別途設定</text>
+  <path d="M610 527V584H455V623" class="flow" marker-start="url(#arrow)"/>
+  <text x="350" y="575" class="caption">ZIP取得 / バックアップ保存</text>
+  <rect x="920" y="623" width="320" height="132" rx="14" fill="#eef0ff" stroke="#a2add4"/>
+  <text x="940" y="657" class="service">CloudWatch</text>
+  <text x="940" y="687" class="body">人数・試合・メモリ / エラーログ</text>
+  <text x="940" y="714" class="body">CPU・通信量・CPUクレジット</text>
+  <text x="940" y="738" class="small">ログ既定7日 / カスタムメトリクスなし</text>
+  <path d="M785 527V584H1080V623" class="flow"/>
+  <text x="835" y="575" class="caption">Agent：ログ転送 / EC2標準メトリクス</text>
+  <rect x="40" y="794" width="1200" height="168" rx="14" fill="#e6f1ed" stroke="#92b5a6"/>
+  <text x="60" y="826" class="service">AWS CloudTrail → S3（選択式の操作履歴）</text>
+  <text x="60" y="861" class="body">このリージョン＋グローバル管理イベント</text>
+  <text x="60" y="895" class="body">専用非公開S3 / 30日で期限切れ</text>
+  <text x="60" y="936" class="small">EnableAuditTrail=true時のみ作成 / 既存証跡との重複を避ける</text>
+  <text x="680" y="861" class="body">CloudWatchはダッシュボードとログで確認</text>
+  <text x="680" y="895" class="body">メール通知・通知用アラームは作成しない</text>
+  <text x="680" y="936" class="small">データイベント・Insights・Lakeなし</text>
+  <text x="40" y="1005" class="body">CloudFormationで構築：IAM / Secrets Manager（CloudFrontオリジンヘッダー）/ 更新用SSMドキュメントも作成</text>
+  <text x="40" y="1034" class="small">夜間停止でEC2稼働時間は約1/3減。EBS・固定IPv4等は停止中も課金。ログ保存等も利用量に応じて課金。</text>
+</svg>

@@ -2,7 +2,6 @@ node_modules/
 .tools/
 .runtime/
 data/
-release/
 .env
 *.log
 test-results/
