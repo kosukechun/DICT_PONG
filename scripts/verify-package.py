@@ -8,7 +8,7 @@ import zipfile
 import hashlib
 
 ROOT = Path(__file__).resolve().parent.parent
-DISTRIBUTION = ROOT / '配布用'
+DISTRIBUTION = ROOT / 'release'
 class Page(HTMLParser):
     def __init__(self):
         super().__init__(); self.ids = []; self.links = []
@@ -45,8 +45,10 @@ with zipfile.ZipFile(ROOT / 'release/pong-app.zip') as z:
 with zipfile.ZipFile(ROOT / 'release/PONG-AWS-kit.zip') as z:
     assert set(z.namelist()) == {'pong-app.zip', 'pong-stack.yaml', 'AWS_SETUP.html', 'AWS_SETUP.md', 'ARCHITECTURE.svg'}
     assert z.testzip() is None
-assert (DISTRIBUTION / 'PONG-AWS-kit.zip').read_bytes() == (ROOT / 'release/PONG-AWS-kit.zip').read_bytes()
 assert (DISTRIBUTION / 'AWS_SETUP.html').read_bytes() == (ROOT / 'docs/AWS_SETUP.html').read_bytes()
 assert (DISTRIBUTION / 'はじめに.txt').read_bytes() == (ROOT / 'docs/DISTRIBUTION_README.txt').read_bytes()
-assert (DISTRIBUTION / 'SHA256SUMS.txt').read_text().split()[0] == hashlib.sha256((DISTRIBUTION / 'PONG-AWS-kit.zip').read_bytes()).hexdigest()
+checksums = dict(line.split() for line in (DISTRIBUTION / 'SHA256SUMS.txt').read_text().splitlines())
+assert set(checksums.values()) == {'PONG-AWS-kit.zip', 'pong-app.zip', 'pong-stack.yaml'}
+for checksum, name in checksums.items():
+    assert checksum == hashlib.sha256((DISTRIBUTION / name).read_bytes()).hexdigest(), name
 print('Verified HTML IDs / TOC, all client IDs, ZIP layout, required files, LF scripts, dependency version, and absence of runtime data/secrets.')

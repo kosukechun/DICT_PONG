@@ -19,7 +19,7 @@ node = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else TOOLS / 'node-v24.2
 stage = Path(tempfile.mkdtemp(prefix='release-smoke-', dir=TOOLS)).resolve()
 process = None
 try:
-    with zipfile.ZipFile(ROOT / '配布用/PONG-AWS-kit.zip') as kit:
+    with zipfile.ZipFile(ROOT / 'release/PONG-AWS-kit.zip') as kit:
         with zipfile.ZipFile(io.BytesIO(kit.read('pong-app.zip'))) as z:
             z.extractall(stage)
     assert not (stage / 'node_modules/jsdom').exists()

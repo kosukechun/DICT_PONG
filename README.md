@@ -6,7 +6,7 @@
 
 **Git・GitHub・手元のAWS CLIは使いません。AWSコンソールで操作できます。**
 
-配布するZIPは、プロジェクト直下の **[配布用/PONG-AWS-kit.zip](配布用/PONG-AWS-kit.zip)** です。同じフォルダーの `はじめに.txt` と `AWS_SETUP.html` を参照してください。以下のアプリZIPやYAMLは、キットZIPを展開した中にあります。`release` はパッケージ生成・検証用です。
+配布するZIPは、プロジェクト直下の **[release/PONG-AWS-kit.zip](release/PONG-AWS-kit.zip)** です。同じフォルダーの `はじめに.txt` と `AWS_SETUP.html` を参照してください。以下のアプリZIPやYAMLは、キットZIPを展開した中にもあります。
 
 | ファイル | 用途 |
 | --- | --- |
@@ -105,8 +105,7 @@ aws/                CloudFormation・初期設定・バックアップ・更新
 docs/               AWS設置手順・操作ガイド・設計と検証
 tests/              物理・保存・通信・画面ロジックのテスト
 scripts/            ローカル起動・配布ZIPの生成
-配布用/             配布するZIP・設置手順書・はじめに
-release/            パッケージ生成・検証用の作業出力
+release/            配布するZIP・YAML・設置手順書・はじめに
 ```
 
 補足は [操作ガイド](docs/USER_GUIDE.md) と [設計・検証記録](docs/ARCHITECTURE.md) にあります。

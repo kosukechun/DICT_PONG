@@ -6,7 +6,3 @@ release/
 .env
 *.log
 test-results/
-配布用/*.zip
-配布用/AWS_SETUP.html
-配布用/SHA256SUMS.txt
-配布用/はじめに.txt
